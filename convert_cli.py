@@ -6,9 +6,6 @@ from converter.yolo.export import export_pt_to_onnx
 from converter.yolo.labels import parse_labels
 
 
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
-
-
 def main():
     parser = argparse.ArgumentParser(description="Convert YOLO26 detect model to MaixCam2 axmodel.")
     parser.add_argument("--model", required=True, help="YOLO26 .pt or .onnx model path")
@@ -38,7 +35,6 @@ def main():
     dataset_dir = Path(args.dataset).expanduser().resolve()
     model_name = args.model_name.strip() or model_path.stem
     labels = parse_labels(args.labels)
-    validate_inputs(model_path, dataset_dir, args.images_num)
 
     jobs_root = Path(args.jobs_dir).expanduser().resolve()
     job_dir = new_job_dir(jobs_root, model_name)
@@ -75,16 +71,6 @@ def main():
     )
     print("result:", job_dir / "out")
     print("log:", job_dir / "convert.log")
-
-
-def validate_inputs(model_path: Path, dataset_dir: Path, images_num: int) -> None:
-    if not model_path.is_file():
-        raise FileNotFoundError(f"model not found: {model_path}")
-    if not dataset_dir.is_dir():
-        raise FileNotFoundError(f"dataset dir not found: {dataset_dir}")
-    images = [p for p in dataset_dir.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES]
-    if len(images) < images_num:
-        raise ValueError(f"not enough calibration images: have {len(images)}, need {images_num}")
 
 
 if __name__ == "__main__":
