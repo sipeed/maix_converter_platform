@@ -5,6 +5,7 @@ __pycache__/
 venv/
 
 jobs/
+inputs/
 tmp/
 tmp1/
 tmp_build/
