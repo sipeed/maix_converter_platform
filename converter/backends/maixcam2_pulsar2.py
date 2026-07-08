@@ -94,9 +94,9 @@ def host_chown_command() -> str:
 
 
 def docker_bind_mount(host_path: Path, container_path: str) -> str:
-    source = str(host_path.resolve())
-    if "," in source:
-        raise ValueError(f"Docker bind mount source path cannot contain comma: {source}")
+    source = host_path.resolve().as_posix()
+    if "," in source or "," in container_path:
+        raise ValueError(f"Docker bind mount path cannot contain comma: {source} -> {container_path}")
     return f"type=bind,source={source},target={container_path}"
 
 
@@ -310,7 +310,7 @@ if __name__ == "__main__":
 '''
     script = script.replace("__OUTPUT_NODES__", repr(output_nodes))
     script = script.replace("__YOLO_VERSION__", profile.yolo_version)
-    path.write_text(textwrap.dedent(script).lstrip(), encoding="utf-8")
+    path.write_text(textwrap.dedent(script).lstrip(), encoding="utf-8", newline="\n")
 
 
 def new_job_dir(root: Path, model_name: str, profile: YoloProfile) -> Path:

@@ -29,4 +29,4 @@ mean = 0,0,0
 scale = 0.00392156862745098, 0.00392156862745098, 0.00392156862745098
 """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")

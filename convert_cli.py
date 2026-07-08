@@ -5,6 +5,7 @@ import re
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from shutil import copyfileobj
 
 from converter.backends.maixcam2_pulsar2 import new_job_dir, prepare_job, run_pulsar2_job
 from converter.yolo.export import export_pt_to_onnx
@@ -182,7 +183,12 @@ def extract_zip_safely(zip_path: Path, dst_dir: Path) -> None:
             target = (dst_dir / info.filename).resolve()
             if dst_root not in [target, *target.parents]:
                 raise ValueError(f"unsafe zip entry: {info.filename}")
-            zf.extract(info, dst_dir)
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, target.open("wb") as dst:
+                copyfileobj(src, dst)
 
 
 def write_job_json(job_dir: Path, metadata: dict) -> None:
