@@ -46,6 +46,7 @@ form.addEventListener("submit", async (event) => {
   try {
     const data = await uploadJob(new FormData(form));
     setProgress(100, "上传完成，转换任务已创建");
+    hideProgressSoon();
     setActiveJob(data.job_id);
     await refreshJobsList();
   } catch (error) {
@@ -113,6 +114,7 @@ function setActiveJob(id) {
   jobId.textContent = id;
   downloadButton.href = "#";
   downloadButton.classList.add("disabled");
+  downloadButton.classList.remove("ready");
   downloadButton.setAttribute("aria-disabled", "true");
   openLogStream(id);
 }
@@ -176,7 +178,10 @@ function renderJob(job) {
   if (job.status === "success") {
     downloadButton.href = `/api/jobs/${job.job_id || activeJobId}/download`;
     downloadButton.classList.remove("disabled");
+    downloadButton.classList.add("ready");
     downloadButton.removeAttribute("aria-disabled");
+  } else {
+    downloadButton.classList.remove("ready");
   }
 }
 
@@ -243,12 +248,22 @@ function updateFileName(input, target, fallback) {
 
 function resetProgress() {
   uploadProgress.classList.add("active");
+  uploadProgressText.classList.add("active");
   setProgress(0, "等待上传");
 }
 
 function setProgress(percent, text) {
   uploadProgressBar.style.width = `${percent}%`;
   uploadProgressText.textContent = text;
+}
+
+function hideProgressSoon() {
+  setTimeout(() => {
+    uploadProgress.classList.remove("active");
+    uploadProgressText.classList.remove("active");
+    uploadProgressBar.style.width = "0";
+    uploadProgressText.textContent = "等待上传";
+  }, 900);
 }
 
 checkHealth();

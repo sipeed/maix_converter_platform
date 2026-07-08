@@ -310,9 +310,14 @@ h2 {
 }
 
 .upload-progress-text {
+  display: none;
   min-height: 18px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.upload-progress-text.active {
+  display: block;
 }
 
 .secondary-button,
@@ -332,6 +337,22 @@ h2 {
   pointer-events: none;
   color: #98a5b8;
   background: var(--surface-soft);
+}
+
+.download-button.ready {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+  animation: ready-pulse 900ms ease-out 2;
+}
+
+@keyframes ready-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(20, 138, 84, 0.35);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(20, 138, 84, 0);
+  }
 }
 
 .monitor-panel {
