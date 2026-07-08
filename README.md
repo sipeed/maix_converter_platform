@@ -114,6 +114,8 @@ jobs/20260708_120000_yolo26n_maixcam2_yolo26/
 
 `yolo26n_maixcam2_yolo26.zip` 可以直接解压后复制到 MaixCam2。
 
+转换 Ultralytics 导出的 `.pt` 或 `.onnx` 时，程序会优先从模型 metadata 里读取类别名写入 `.mud`。如果没有读取到类别名，才会回退到 COCO 80 类。自训练模型一定要保证 `.mud` 里的 `labels` 数量和模型类别输出数量一致，否则 MaixPy 后处理会按错误类别数解析输出。
+
 ## YOLO Profile
 
 当前只接入 MaixCam2 detect 任务：

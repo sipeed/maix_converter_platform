@@ -372,6 +372,7 @@ def read_job_summary(job_dir: Path) -> dict:
         "status": job.get("status", "unknown"),
         "model_name": job.get("model_name", ""),
         "yolo_version": job.get("yolo_version", ""),
+        "labels_num": job.get("labels_num", ""),
         "created_at": job.get("created_at", ""),
         "completed_at": job.get("completed_at", ""),
     }

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from converter.backends.maixcam2_pulsar2 import new_job_dir, prepare_job, run_pulsar2_job
 from converter.yolo.export import export_pt_to_onnx
-from converter.yolo.labels import parse_labels
+from converter.yolo.labels import resolve_labels
 from converter.yolo.node_profiles import get_yolo_profile
 
 
@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--model", required=True, help="YOLO .pt or .onnx model path")
     parser.add_argument("--dataset", required=True, help="calibration image directory or .zip file")
     parser.add_argument("--model-name", default="", help="output model base name, default is model stem")
-    parser.add_argument("--labels", default="", help="comma separated labels, default is COCO labels")
+    parser.add_argument("--labels", default="", help="comma separated labels, default is read from model metadata")
     parser.add_argument("--yolo-version", default="yolo26", choices=["yolo11", "yolo26"], help="YOLO profile")
     parser.add_argument("--task", default="detect", choices=["detect"], help="model task")
     parser.add_argument("--images-num", type=int, default=100, help="number of calibration images")
@@ -48,7 +48,7 @@ def main():
     model_path = Path(args.model).expanduser().resolve()
     dataset_path = Path(args.dataset).expanduser().resolve()
     model_name = clean_model_name(args.model_name.strip() or model_path.stem)
-    labels = parse_labels(args.labels)
+    labels, labels_source = resolve_labels(model_path, args.labels)
     profile = get_yolo_profile(args.yolo_version, args.task)
 
     if args.images_num < 1:
@@ -75,6 +75,7 @@ def main():
         "dataset": str(dataset_path),
         "dataset_suffix": dataset_path.suffix.lower(),
         "labels_num": len(labels),
+        "labels_source": labels_source,
         "images_num": args.images_num,
         "imgsz": args.imgsz,
         "opset": args.opset,

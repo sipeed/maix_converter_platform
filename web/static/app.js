@@ -188,7 +188,7 @@ function renderJob(job) {
   jobDone.textContent = job.completed_at || "-";
   jobYolo.textContent = [job.yolo_version, job.task].filter(Boolean).join(" / ") || "-";
   jobSize.textContent = formatImageSize(job.imgsz);
-  jobImages.textContent = Number.isFinite(Number(job.images_num)) ? `${job.images_num}` : "-";
+  jobImages.textContent = formatLabelsAndImages(job);
   jobMode.textContent = job.fast ? "快速" : "完整";
   renderJobError(job);
 
@@ -211,6 +211,12 @@ function renderJobError(job) {
 function formatImageSize(size) {
   if (!Array.isArray(size) || size.length < 2) return "-";
   return `${size[0]} x ${size[1]}`;
+}
+
+function formatLabelsAndImages(job) {
+  const labels = Number.isFinite(Number(job.labels_num)) ? `${job.labels_num}` : "-";
+  const images = Number.isFinite(Number(job.images_num)) ? `${job.images_num}` : "-";
+  return `${labels} / ${images}`;
 }
 
 function setStatus(status) {
