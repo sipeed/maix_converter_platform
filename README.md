@@ -64,10 +64,19 @@ python convert_cli.py \
 
 输出目录会在 `jobs/` 下，每次转换一个独立任务目录。
 
-结果文件：
+结果文件示例：
 
 ```text
-out/yolo26n.mud
-out/yolo26n_npu.axmodel
-out/yolo26n_vnpu.axmodel
+jobs/20260708_120000_yolo26n_maixcam2_yolo26/
+  job.json
+  convert.log
+  yolo26n_maixcam2_yolo26.zip
+  out/
+    yolo26n.mud
+    yolo26n_npu.axmodel
+    yolo26n_vnpu.axmodel
 ```
+
+`job.json` 会记录本次转换参数、状态、输出目录、日志路径和 zip 路径。转换失败时也会写入 `status: failed` 和错误信息。
+
+`yolo26n_maixcam2_yolo26.zip` 可以直接解压后复制到 MaixCam2。
