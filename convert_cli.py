@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--dataset", required=True, help="calibration image directory or .zip file")
     parser.add_argument("--model-name", default="", help="output model base name, default is model stem")
     parser.add_argument("--labels", default="", help="comma separated labels, default is read from model metadata")
-    parser.add_argument("--yolo-version", default="yolo26", choices=["yolo11", "yolo26"], help="YOLO profile")
+    parser.add_argument("--yolo-version", default="yolo26", choices=["yolo11", "yolo26", "yolov8"], help="YOLO profile")
     parser.add_argument("--task", default="detect", choices=["detect"], help="model task")
     parser.add_argument("--images-num", type=int, default=100, help="number of calibration images")
     parser.add_argument(

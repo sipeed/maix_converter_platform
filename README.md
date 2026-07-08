@@ -8,6 +8,8 @@
 - YOLO26 `.pt`，会先用 Ultralytics 导出 ONNX，再进入 MaixCam2 转换流程
 - YOLO11 `.onnx`
 - YOLO11 `.pt`，会先用 Ultralytics 导出 ONNX，再进入 MaixCam2 转换流程
+- YOLOv8 `.onnx`
+- YOLOv8 `.pt`，会先用 Ultralytics 导出 ONNX，再进入 MaixCam2 转换流程
 - 量化图片目录或 `.zip` 压缩包
 
 ## 输入目录
@@ -19,6 +21,7 @@ inputs/
   models/
     yolo26n.pt
     yolo11n.pt
+    yolov8n.pt
   datasets/
     coco/
       000000000139.jpg
@@ -47,6 +50,18 @@ python convert_cli.py \
   --dataset inputs/datasets/coco \
   --model-name yolo11n \
   --yolo-version yolo11 \
+  --imgsz 640 480 \
+  --images-num 100
+```
+
+转换 YOLOv8 时指定 `--yolo-version yolov8`：
+
+```bash
+python convert_cli.py \
+  --model inputs/models/yolov8n.pt \
+  --dataset inputs/datasets/coco \
+  --model-name yolov8n \
+  --yolo-version yolov8 \
   --imgsz 640 480 \
   --images-num 100
 ```
@@ -124,12 +139,12 @@ jobs/20260708_120000_yolo26n_maixcam2_yolo26/
 | --- | --- | --- |
 | YOLO26 | `yolo26` | `/model.23/one2one_cv2.0/one2one_cv2.0.2/Conv_output_0`<br>`/model.23/one2one_cv2.1/one2one_cv2.1.2/Conv_output_0`<br>`/model.23/one2one_cv2.2/one2one_cv2.2.2/Conv_output_0`<br>`/model.23/one2one_cv3.0/one2one_cv3.0.2/Conv_output_0`<br>`/model.23/one2one_cv3.1/one2one_cv3.1.2/Conv_output_0`<br>`/model.23/one2one_cv3.2/one2one_cv3.2.2/Conv_output_0` |
 | YOLO11 | `yolo11` | `/model.23/dfl/conv/Conv_output_0`<br>`/model.23/Sigmoid_output_0` |
+| YOLOv8 | `yolov8` | `/model.22/dfl/conv/Conv_output_0`<br>`/model.22/Sigmoid_output_0` |
 
 YOLO11 这里使用 MaixPy 文档里 MaixCam2 推荐的两个输出节点。不要使用 `/model.23/Concat_output_0`、`/model.23/Concat_1_output_0`、`/model.23/Concat_2_output_0` 这组三输出方案；它在 MaixCam2 上容易量化失败。
 
 后续计划：
 
-- YOLOv8 detect
 - YOLOv5 detect
 - MaixCam / MaixCam Pro 后端
 

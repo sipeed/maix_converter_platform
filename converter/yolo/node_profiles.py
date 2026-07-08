@@ -33,6 +33,11 @@ YOLO11_DETECT_OUTPUTS = [
     OutputNode("/model.23/Sigmoid_output_0"),
 ]
 
+YOLOV8_DETECT_OUTPUTS = [
+    OutputNode("/model.22/dfl/conv/Conv_output_0", (0, 2, 3, 1)),
+    OutputNode("/model.22/Sigmoid_output_0"),
+]
+
 PROFILES = {
     ("yolo26", "detect"): YoloProfile(
         yolo_version="yolo26",
@@ -45,6 +50,12 @@ PROFILES = {
         task="detect",
         model_type="yolo11",
         output_nodes=tuple(YOLO11_DETECT_OUTPUTS),
+    ),
+    ("yolov8", "detect"): YoloProfile(
+        yolo_version="yolov8",
+        task="detect",
+        model_type="yolov8",
+        output_nodes=tuple(YOLOV8_DETECT_OUTPUTS),
     ),
 }
 
