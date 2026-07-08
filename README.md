@@ -84,35 +84,84 @@ docker ps
 
 ## 4. 安装 Pulsar2 Docker 镜像
 
-MaixCam2 转换依赖 Pulsar2 镜像，默认镜像名是：
+MaixCam2 模型转换使用的是 AX620E 工具链。按照 [Sipeed MaixCAM2 模型转换文档](https://wiki.sipeed.com/maixpy/doc/zh/ai_model_converter/maixcam2.html)，推荐把 Pulsar2 放在 Docker 里运行，这样可以避免宿主机 Python、系统库和工具链版本不匹配。
+
+本项目默认调用的 Docker 镜像名是：
 
 ```text
 pulsar2:6.0
 ```
 
-如果你已经有镜像，可以检查：
+你需要先获取 Pulsar2 Docker 镜像包。镜像包通常是 `.tar` 或 `.tar.gz` 文件，文件名可能因版本不同而变化。
+
+加载镜像：
+
+```bash
+docker load -i <你的_pulsar2_镜像包.tar>
+```
+
+如果你的镜像包是 `.tar.gz`，也可以直接加载：
+
+```bash
+docker load -i <你的_pulsar2_镜像包.tar.gz>
+```
+
+加载完成后查看镜像：
 
 ```bash
 docker images
 ```
 
-如果你拿到的是 `.tar` 或 `.tar.gz` 镜像包，可以用：
+你需要确认列表里有一个可用的 Pulsar2 镜像。如果镜像名已经是 `pulsar2:6.0`，可以直接进入下一步。
 
-```bash
-docker load -i pulsar2_6.0.tar
+如果加载出来的镜像名不是 `pulsar2:6.0`，需要给它打一个 tag。比如 `docker images` 显示的是：
+
+```text
+REPOSITORY   TAG
+pulsar2      6.0
 ```
 
-加载完成后确认镜像名：
+那就不需要处理。如果显示的是其他名字，比如：
 
-```bash
-docker images
+```text
+REPOSITORY        TAG
+sipeed/pulsar2    latest
 ```
 
-如果镜像显示的名字不是 `pulsar2:6.0`，可以打 tag：
+则执行：
 
 ```bash
-docker tag 原镜像名:原标签 pulsar2:6.0
+docker tag sipeed/pulsar2:latest pulsar2:6.0
 ```
+
+如果显示的是：
+
+```text
+REPOSITORY   TAG
+pulsar2      3.3
+```
+
+则执行：
+
+```bash
+docker tag pulsar2:3.3 pulsar2:6.0
+```
+
+再次确认：
+
+```bash
+docker images | grep pulsar2
+```
+
+最后可以简单验证容器里能找到 `pulsar2` 命令：
+
+```bash
+docker run --rm --entrypoint /bin/bash pulsar2:6.0 -lc "pulsar2 --help | head"
+```
+
+如果这条命令能打印 Pulsar2 帮助信息，就说明镜像基本可用。
+
+> 平台运行转换任务时会自动调用 Docker，不需要你手动进入容器。只有在排查环境问题时，才需要手动运行上面的验证命令。
 
 ## 5. 启动网页端
 
