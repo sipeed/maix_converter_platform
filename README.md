@@ -1,42 +1,131 @@
 # Maix Converter Platform
 
-Maix Converter Platform 是一个面向 MaixCam2 的 YOLO 模型转换工具。你可以在网页里上传模型和量化图片数据集，选择 YOLO 版本和输入分辨率，然后自动生成 MaixPy 可用的 `.mud`、`.axmodel` 和结果压缩包。
+Maix Converter Platform 是一个面向 MaixCam2 的 YOLO 模型转换网页工具。它的目标是把原本需要手动敲很多命令、准备配置文件、进入 Docker、复制结果文件的转换流程，整理成一个更容易使用的 Web 页面。
+
+你只需要上传 YOLO 模型和量化图片数据集，选择 YOLO 版本、输入分辨率和转换参数，平台就会自动完成：
+
+- `.pt` 导出 `.onnx`
+- ONNX 输出节点裁剪
+- 量化图片打包
+- Pulsar2 转换
+- 生成 `.mud`
+- 生成 MaixCam2 可用的 `.axmodel`
+- 打包转换结果 zip
 
 项目里的运行路径基于当前仓库目录计算，不依赖固定的宿主机绝对路径。别人 clone 后进入仓库目录即可运行。
 
-当前支持：
+## 当前支持
 
-- MaixCam2
-- YOLO26 Detect
-- YOLO11 Detect
-- YOLOv8 Detect
-- `.pt` 模型输入
-- `.onnx` 模型输入
-- `.zip` 量化图片数据集输入
+- 设备：MaixCam2
+- 任务：Detect
+- YOLO26
+- YOLO11
+- YOLOv8
+- 输入模型：`.pt` / `.onnx`
+- 量化数据集：`.zip`
 
-## 准备环境
+## 1. 克隆项目
 
-你需要提前准备好：
+```bash
+git clone git@github.com:liangzhuohua/maix_converter_platform.git
+cd maix_converter_platform
+```
 
-- Python 环境，建议使用已经安装 `ultralytics` 的 conda `yolo` 环境
-- Docker
-- Pulsar2 Docker 镜像：`pulsar2:6.0`
+如果你使用 HTTPS：
 
-如果要转换 `.pt` 模型，需要 Python 环境里可以正常导入 `ultralytics`。如果只转换 `.onnx`，不需要执行 `.pt` 导出步骤，但 Web 服务仍建议在同一个环境里运行。
+```bash
+git clone https://github.com/liangzhuohua/maix_converter_platform.git
+cd maix_converter_platform
+```
+
+## 2. 准备 Python 环境
+
+建议使用 conda 单独创建一个环境：
+
+```bash
+conda create -n maix-converter python=3.11
+conda activate maix-converter
+```
 
 安装 Web 服务依赖：
 
 ```bash
-cd maix_converter_platform
-conda activate yolo
 pip install -r requirements-web.txt
 ```
 
-## 启动网页
+如果你需要上传 `.pt` 模型，让平台自动导出 ONNX，还需要安装 Ultralytics：
+
+```bash
+pip install ultralytics onnx
+```
+
+如果你只上传已经导出的 `.onnx`，可以不安装 `ultralytics`。但如果是自训练模型，建议安装 `onnx`，这样平台可以从 ONNX metadata 里读取类别名并写入 `.mud`。
+
+## 3. 安装 Docker
+
+平台使用 Docker 运行 Pulsar2 转换环境。你需要先安装 Docker，并确认当前用户可以执行 `docker`。
+
+Ubuntu / Debian 可以参考：
+
+```bash
+sudo apt update
+sudo apt install docker.io
+sudo usermod -aG docker $USER
+```
+
+执行完 `usermod` 后，需要重新登录终端，或者重启系统。然后检查：
+
+```bash
+docker --version
+docker ps
+```
+
+如果 `docker ps` 没有权限错误，就说明 Docker 基本可用。
+
+## 4. 安装 Pulsar2 Docker 镜像
+
+MaixCam2 转换依赖 Pulsar2 镜像，默认镜像名是：
+
+```text
+pulsar2:6.0
+```
+
+如果你已经有镜像，可以检查：
+
+```bash
+docker images
+```
+
+如果你拿到的是 `.tar` 或 `.tar.gz` 镜像包，可以用：
+
+```bash
+docker load -i pulsar2_6.0.tar
+```
+
+加载完成后确认镜像名：
+
+```bash
+docker images
+```
+
+如果镜像显示的名字不是 `pulsar2:6.0`，可以打 tag：
+
+```bash
+docker tag 原镜像名:原标签 pulsar2:6.0
+```
+
+## 5. 启动网页端
+
+进入项目目录并激活 Python 环境：
 
 ```bash
 cd maix_converter_platform
-conda activate yolo
+conda activate maix-converter
+```
+
+启动服务：
+
+```bash
 uvicorn web.app:app --host 0.0.0.0 --port 8000
 ```
 
@@ -46,101 +135,134 @@ uvicorn web.app:app --host 0.0.0.0 --port 8000
 http://127.0.0.1:8000/
 ```
 
-## 准备输入文件
+如果你是在另一台电脑访问这台转换服务器，把 `127.0.0.1` 换成服务器 IP。
+
+## 6. 准备上传文件
 
 模型文件支持：
 
 - `.pt`
 - `.onnx`
 
-量化数据集需要上传 `.zip` 文件。zip 里面可以直接放图片，也可以有多层目录，程序会递归查找图片。
+量化数据集必须上传 `.zip` 文件。zip 里面只需要图片，不需要标注文件。
 
-支持的图片格式：
+支持图片格式：
 
 - `.jpg`
 - `.jpeg`
 - `.png`
 - `.bmp`
 
-建议目录结构：
+zip 可以直接放图片：
 
 ```text
-inputs/
-  models/
-    yolo26n.pt
-    yolo11n.pt
-    yolov8n.pt
-  datasets/
-    coco.zip
+dataset.zip
+  000001.jpg
+  000002.jpg
+  000003.jpg
 ```
 
-量化图片不需要标注文件，只需要准备一批和实际使用场景接近的图片。一般先用 100 张左右测试流程，正式转换可以根据模型情况增加数量。
-
-## 创建转换任务
-
-在网页里依次填写：
-
-- 模型文件：选择 `.pt` 或 `.onnx`
-- 量化数据集：选择 `.zip`
-- 模型名称：用于生成输出文件名，比如 `yolo26n`
-- YOLO 版本：选择 `YOLO26 Detect`、`YOLO11 Detect` 或 `YOLOv8 Detect`
-- 图片数量：参与量化的图片数量
-- 分辨率：模型输入宽高，比如 `640 x 480`
-- 快速模式：调试时可以打开，正式使用建议关闭后重新转换一次
-
-点击“开始转换”后，页面会显示上传进度、任务状态和实时日志。转换成功后，“下载结果”按钮会变成可点击状态。
-
-## 输出结果
-
-每次转换都会在 `jobs/` 下生成一个独立任务目录，并自动打包 zip。
-
-结果示例：
+也可以有目录：
 
 ```text
-jobs/20260708_120000_yolo26n_maixcam2_yolo26/
-  job.json
-  convert.log
-  yolo26n_maixcam2_yolo26.zip
-  out/
-    yolo26n.mud
-    yolo26n_npu.axmodel
-    yolo26n_vnpu.axmodel
+dataset.zip
+  images/
+    000001.jpg
+    000002.jpg
 ```
 
-网页里的“下载结果”下载的是 zip 文件。解压后会得到：
+建议选择和实际使用场景接近的图片。调试时可以先用 50 到 100 张，正式转换可以适当增加。
 
-- `.mud`
-- `_npu.axmodel`
-- `_vnpu.axmodel`
+## 7. 网页选项说明
 
-把这些文件复制到 MaixCam2 上同一个目录里，然后在 MaixPy 代码中加载 `.mud`。
+### 模型文件
 
-## 任务清理
+上传你要转换的 YOLO 模型。
 
-平台默认会自动清理旧任务，避免 `jobs/` 越堆越大。
+- 上传 `.pt`：平台会先用 Ultralytics 导出 ONNX，再继续转换
+- 上传 `.onnx`：平台直接进入 MaixCam2 转换流程
 
-默认规则：
+### 量化数据集
 
-- 只清理 `jobs/<job_id>/` 任务目录
-- 不会清理项目根目录下的 `inputs/`
-- 不会清理 `queued` 或 `running` 任务
-- 已结束任务超过 7 天会被清理
-- 已结束任务超过 30 个时，会优先清理更旧的任务
-- Web 服务启动时清理一次，之后每 6 小时清理一次
+上传图片数据集 zip。它用于量化校准，不需要标签文件。
 
-可以用环境变量调整：
+量化数据集越接近真实摄像头画面，转换后的模型效果通常越稳定。
 
-```bash
-MAIX_JOBS_KEEP_DAYS=7
-MAIX_JOBS_KEEP_COUNT=30
-MAIX_JOBS_CLEAN_INTERVAL_SECONDS=21600
+### 模型名称
+
+输出文件的基础名称。比如填写：
+
+```text
+yolo11n
 ```
 
-关闭自动清理：
+输出结果会类似：
 
-```bash
-MAIX_JOBS_AUTO_CLEAN=0
+```text
+yolo11n.mud
+yolo11n_npu.axmodel
+yolo11n_vnpu.axmodel
 ```
+
+### YOLO 版本
+
+选择模型对应的 YOLO 类型：
+
+- `YOLO26 Detect`
+- `YOLO11 Detect`
+- `YOLOv8 Detect`
+
+这个选项会影响输出节点选择和 `.mud` 里的 `model_type`，必须和模型实际版本对应。
+
+### 图片数量
+
+参与量化校准的图片数量。这个数量不能超过 zip 里实际图片数量。
+
+建议：
+
+- 快速测试：`50` 到 `100`
+- 正式转换：根据数据集情况增加
+
+### 宽度 / 高度
+
+模型输入分辨率。
+
+例如填写：
+
+```text
+宽度 640
+高度 480
+```
+
+对应输入形状是 `[1, 3, 480, 640]`。宽高必须和你希望在 MaixCam2 上运行的模型输入尺寸一致。
+
+### 快速模式
+
+快速模式会跳过部分 Pulsar2 精度分析和输出校验，转换速度更快，适合调试流程。
+
+正式部署到 MaixCam2 前，建议关闭快速模式重新转换一次。
+
+## 8. 开始转换和下载结果
+
+填写完选项后，点击“开始转换”。
+
+页面会显示：
+
+- 上传进度
+- 当前任务状态
+- 转换日志
+- 最近任务列表
+- 下载结果按钮
+
+转换成功后，“下载结果”按钮会变成可点击状态。下载得到的是一个 zip，里面包含：
+
+```text
+model_name.mud
+model_name_npu.axmodel
+model_name_vnpu.axmodel
+```
+
+把这几个文件放到 MaixCam2 的同一个目录中，然后在 MaixPy 代码里加载 `.mud`。
 
 下面以 YOLO11 为例：
 
@@ -162,69 +284,70 @@ while not app.need_exit():
     disp.show(img)
 ```
 
-如果你转换的是其他 YOLO 版本，代码里的模型类需要换成 MaixPy 对应接口，`.mud`、`_npu.axmodel` 和 `_vnpu.axmodel` 仍然放在同一个目录。
+如果你转换的是其他 YOLO 版本，代码里的模型类需要换成 MaixPy 对应接口。
+
+## 9. 任务目录和自动清理
+
+每次转换都会生成一个任务目录：
+
+```text
+jobs/<job_id>/
+```
+
+里面包含日志、临时文件、输出结果和结果 zip。
+
+平台默认会自动清理旧任务：
+
+- 只清理 `jobs/<job_id>/`
+- 不清理根目录下的 `inputs/`
+- 不清理 `queued` 或 `running` 任务
+- 已结束任务超过 7 天会被清理
+- 已结束任务超过 30 个时，会优先清理更旧的任务
+- Web 服务启动时清理一次，之后每 6 小时清理一次
+
+可以用环境变量调整：
+
+```bash
+MAIX_JOBS_KEEP_DAYS=7
+MAIX_JOBS_KEEP_COUNT=30
+MAIX_JOBS_CLEAN_INTERVAL_SECONDS=21600
+```
+
+关闭自动清理：
+
+```bash
+MAIX_JOBS_AUTO_CLEAN=0
+```
 
 ## 常见问题
 
 ### 为什么需要量化数据集？
 
-MaixCam2 使用的是 NPU 量化模型。转换工具需要用一批图片统计模型中间层的数据范围，然后把浮点模型转换成适合 NPU 运行的量化模型。图片越接近真实使用场景，量化后的效果通常越稳定。
+MaixCam2 使用 NPU 量化模型。转换工具需要用一批图片统计模型中间层的数据范围，然后把浮点模型转换成适合 NPU 运行的量化模型。
 
-### `.pt` 和 `.onnx` 应该选哪个？
+### `.pt` 和 `.onnx` 应该上传哪个？
 
-如果你只有训练后的 `.pt`，可以直接上传 `.pt`，平台会先导出 ONNX 再转换。
+如果你只有训练后的 `.pt`，可以直接上传 `.pt`。
 
-如果你已经有确认可用的 `.onnx`，可以直接上传 `.onnx`，这样会跳过 `.pt -> .onnx` 导出步骤。
+如果你已经有确认可用的 `.onnx`，上传 `.onnx` 会更直接。
 
 ### 自训练模型类别数不对怎么办？
 
-平台会优先从 Ultralytics `.pt` 或 `.onnx` metadata 里读取类别名，并写入 `.mud`。如果模型 metadata 缺失类别信息，可能会回退到默认类别。
+平台会优先从 Ultralytics `.pt` 或 `.onnx` metadata 里读取类别名，并写入 `.mud`。
 
 如果 MaixCam2 运行时报 `get tensor idx error`，或者模型信息里的 `labels num` 和你的训练类别数不一致，优先检查导出的模型 metadata 和 `.mud` 里的 `labels`。
 
-### 快速模式可以一直开着吗？
+### 转换失败怎么办？
 
-快速模式适合调试流程，会跳过部分 Pulsar2 精度分析和输出校验，转换速度更快。
+先看网页里的实时日志。每个任务目录里也会保留：
 
-正式部署到 MaixCam2 前，建议关闭快速模式重新转换一次。
-
-## 命令行转换
-
-除了网页，也可以直接使用命令行：
-
-```bash
-python convert_cli.py \
-  --model inputs/models/yolo26n.pt \
-  --dataset inputs/datasets/coco.zip \
-  --model-name yolo26n \
-  --yolo-version yolo26 \
-  --imgsz 640 480 \
-  --images-num 100
+```text
+api.log
+convert.log
+job.json
 ```
 
-YOLO11：
-
-```bash
-python convert_cli.py \
-  --model inputs/models/yolo11n.pt \
-  --dataset inputs/datasets/coco.zip \
-  --model-name yolo11n \
-  --yolo-version yolo11 \
-  --imgsz 640 480 \
-  --images-num 100
-```
-
-YOLOv8：
-
-```bash
-python convert_cli.py \
-  --model inputs/models/yolov8n.pt \
-  --dataset inputs/datasets/coco.zip \
-  --model-name yolov8n \
-  --yolo-version yolov8 \
-  --imgsz 640 480 \
-  --images-num 100
-```
+这些文件可以帮助定位是上传、ONNX 导出、输出节点、量化数据集还是 Pulsar2 转换阶段出错。
 
 ## 开发文档
 
