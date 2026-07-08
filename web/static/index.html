@@ -12,7 +12,7 @@
         <span class="mark">M</span>
         <div>
           <h1>Maix Converter</h1>
-          <p>YOLO26 / MaixCam2</p>
+          <p>YOLO11 / YOLO26 / MaixCam2</p>
         </div>
       </div>
       <div class="server-state" id="serverState">API 检查中</div>
@@ -47,6 +47,14 @@
           <label class="field">
             <span>模型名称</span>
             <input id="modelName" name="model_name" type="text" placeholder="yolo26n" />
+          </label>
+
+          <label class="field">
+            <span>YOLO 版本</span>
+            <select name="yolo_version">
+              <option value="yolo26" selected>YOLO26 detect</option>
+              <option value="yolo11">YOLO11 detect</option>
+            </select>
           </label>
 
           <div class="grid-two">

@@ -9,14 +9,17 @@ from pathlib import Path
 from converter.backends.maixcam2_pulsar2 import new_job_dir, prepare_job, run_pulsar2_job
 from converter.yolo.export import export_pt_to_onnx
 from converter.yolo.labels import parse_labels
+from converter.yolo.node_profiles import get_yolo_profile
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert YOLO26 detect model to MaixCam2 axmodel.")
-    parser.add_argument("--model", required=True, help="YOLO26 .pt or .onnx model path")
+    parser = argparse.ArgumentParser(description="Convert YOLO detect model to MaixCam2 axmodel.")
+    parser.add_argument("--model", required=True, help="YOLO .pt or .onnx model path")
     parser.add_argument("--dataset", required=True, help="calibration image directory or .zip file")
     parser.add_argument("--model-name", default="", help="output model base name, default is model stem")
     parser.add_argument("--labels", default="", help="comma separated labels, default is COCO labels")
+    parser.add_argument("--yolo-version", default="yolo26", choices=["yolo11", "yolo26"], help="YOLO profile")
+    parser.add_argument("--task", default="detect", choices=["detect"], help="model task")
     parser.add_argument("--images-num", type=int, default=100, help="number of calibration images")
     parser.add_argument(
         "--imgsz",
@@ -46,6 +49,7 @@ def main():
     dataset_path = Path(args.dataset).expanduser().resolve()
     model_name = clean_model_name(args.model_name.strip() or model_path.stem)
     labels = parse_labels(args.labels)
+    profile = get_yolo_profile(args.yolo_version, args.task)
 
     if args.images_num < 1:
         raise ValueError("--images-num must be >= 1")
@@ -56,7 +60,7 @@ def main():
         job_dir = Path(args.job_dir).expanduser().resolve()
     else:
         jobs_root = Path(args.jobs_dir).expanduser().resolve()
-        job_dir = new_job_dir(jobs_root, model_name)
+        job_dir = new_job_dir(jobs_root, model_name, profile=profile)
     job_dir.mkdir(parents=True, exist_ok=True)
     print("job:", job_dir)
 
@@ -64,6 +68,8 @@ def main():
         "status": "running",
         "created_at": now_iso(),
         "model_name": model_name,
+        "yolo_version": profile.yolo_version,
+        "task": profile.task,
         "input_model": str(model_path),
         "input_suffix": model_path.suffix.lower(),
         "dataset": str(dataset_path),
@@ -106,6 +112,7 @@ def main():
             model_path=model_path,
             dataset_dir=dataset_dir,
             model_name=model_name,
+            profile=profile,
             labels=labels,
             images_num=args.images_num,
         )
@@ -116,7 +123,7 @@ def main():
             images_num=args.images_num,
             fast=args.fast,
         )
-        zip_path = package_outputs(job_dir, model_name)
+        zip_path = package_outputs(job_dir, model_name, profile=profile)
         metadata.update(
             {
                 "status": "success",
@@ -143,13 +150,13 @@ def main():
         raise
 
 
-def package_outputs(job_dir: Path, model_name: str) -> Path:
+def package_outputs(job_dir: Path, model_name: str, profile) -> Path:
     out_dir = job_dir / "out"
     files = sorted(p for p in out_dir.iterdir() if p.is_file())
     if not files:
         raise FileNotFoundError(f"no output files found in {out_dir}")
 
-    zip_path = job_dir / f"{model_name}_maixcam2_yolo26.zip"
+    zip_path = job_dir / f"{model_name}_maixcam2_{profile.yolo_version}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path in files:
             zf.write(path, arcname=path.name)

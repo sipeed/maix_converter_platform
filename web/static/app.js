@@ -179,7 +179,7 @@ function appendLog(text) {
 function renderJob(job) {
   setStatus(job.status || "unknown");
   jobId.textContent = job.job_id || activeJobId || "-";
-  jobModel.textContent = job.model_name || "-";
+  jobModel.textContent = [job.model_name, job.yolo_version].filter(Boolean).join(" / ") || "-";
   jobDone.textContent = job.completed_at || "-";
 
   if (job.status === "success") {
@@ -233,7 +233,7 @@ function renderJobsList(jobs) {
 
     const time = document.createElement("div");
     time.className = "muted";
-    time.textContent = job.completed_at || job.created_at || "-";
+    time.textContent = [job.yolo_version, job.completed_at || job.created_at || "-"].filter(Boolean).join(" / ");
 
     const button = document.createElement("button");
     button.className = "secondary-button";

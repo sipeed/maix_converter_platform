@@ -13,6 +13,8 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Web
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from converter.yolo.node_profiles import get_yolo_profile
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 JOBS_DIR = BASE_DIR / "jobs"
@@ -42,6 +44,7 @@ def create_job(
     images_num: int = Form(100),
     imgsz_width: int = Form(640),
     imgsz_height: int = Form(480),
+    yolo_version: str = Form("yolo26"),
     fast: bool = Form(False),
 ):
     if images_num < 1 or images_num > 5000:
@@ -58,8 +61,12 @@ def create_job(
     clean_model_name = slugify(model_name) or slugify(Path(model.filename or "model").stem)
     if not clean_model_name:
         raise HTTPException(status_code=400, detail="model_name is required")
+    try:
+        profile = get_yolo_profile(yolo_version, "detect")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    job_id = new_job_id(clean_model_name)
+    job_id = new_job_id(clean_model_name, yolo_version=profile.yolo_version)
     job_dir = JOBS_DIR / job_id
     upload_dir = job_dir / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=False)
@@ -80,10 +87,13 @@ def create_job(
             "created_at": now_iso(),
             "job_id": job_id,
             "model_name": clean_model_name,
+            "yolo_version": profile.yolo_version,
+            "task": profile.task,
             "input_model": str(model_path),
             "dataset": str(dataset_path),
             "images_num": images_num,
             "imgsz": [imgsz_width, imgsz_height],
+            "output_nodes": profile.output_names,
             "fast": fast,
             "api_log": str(job_dir / "api.log"),
         },
@@ -96,6 +106,7 @@ def create_job(
             "model_path": model_path,
             "dataset_path": dataset_path,
             "model_name": clean_model_name,
+            "yolo_version": profile.yolo_version,
             "images_num": images_num,
             "imgsz_width": imgsz_width,
             "imgsz_height": imgsz_height,
@@ -254,6 +265,7 @@ def run_conversion(
     model_path: Path,
     dataset_path: Path,
     model_name: str,
+    yolo_version: str,
     images_num: int,
     imgsz_width: int,
     imgsz_height: int,
@@ -268,6 +280,8 @@ def run_conversion(
         str(dataset_path),
         "--model-name",
         model_name,
+        "--yolo-version",
+        yolo_version,
         "--imgsz",
         str(imgsz_width),
         str(imgsz_height),
@@ -357,6 +371,7 @@ def read_job_summary(job_dir: Path) -> dict:
         "job_id": job["job_id"],
         "status": job.get("status", "unknown"),
         "model_name": job.get("model_name", ""),
+        "yolo_version": job.get("yolo_version", ""),
         "created_at": job.get("created_at", ""),
         "completed_at": job.get("completed_at", ""),
     }
@@ -398,9 +413,9 @@ def write_json(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def new_job_id(model_name: str) -> str:
+def new_job_id(model_name: str, yolo_version: str) -> str:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    return f"{stamp}_{model_name}_maixcam2_yolo26"
+    return f"{stamp}_{model_name}_maixcam2_{yolo_version}"
 
 
 def now_iso() -> str:

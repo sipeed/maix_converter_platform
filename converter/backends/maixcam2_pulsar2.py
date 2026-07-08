@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from converter.yolo.mud import write_maixcam2_yolo_mud
+from converter.yolo.node_profiles import YoloProfile
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
@@ -20,6 +21,7 @@ def prepare_job(
     model_path: Path,
     dataset_dir: Path,
     model_name: str,
+    profile: YoloProfile,
     labels: list[str],
     images_num: int,
 ) -> None:
@@ -51,10 +53,10 @@ def prepare_job(
     write_maixcam2_yolo_mud(
         out_dir / f"{model_name}.mud",
         model_name=model_name,
-        model_type="yolo26",
+        model_type=profile.model_type,
         labels=labels,
     )
-    write_container_script(job_dir / "convert_inside_docker.py")
+    write_container_script(job_dir / "convert_inside_docker.py", profile=profile)
 
 
 def run_pulsar2_job(
@@ -115,7 +117,11 @@ def run_and_log(cmd: list[str], log_path: Path, stdin_text: str | None = None) -
             raise subprocess.CalledProcessError(code, cmd)
 
 
-def write_container_script(path: Path) -> None:
+def write_container_script(path: Path, profile: YoloProfile) -> None:
+    output_nodes = [
+        {"name": node.name, "dst_perm": list(node.dst_perm) if node.dst_perm else None}
+        for node in profile.output_nodes
+    ]
     script = r'''
 import argparse
 import json
@@ -127,14 +133,8 @@ from pathlib import Path
 import onnx
 
 
-OUTPUT_NODES = [
-    "/model.23/one2one_cv2.0/one2one_cv2.0.2/Conv_output_0",
-    "/model.23/one2one_cv2.1/one2one_cv2.1.2/Conv_output_0",
-    "/model.23/one2one_cv2.2/one2one_cv2.2.2/Conv_output_0",
-    "/model.23/one2one_cv3.0/one2one_cv3.0.2/Conv_output_0",
-    "/model.23/one2one_cv3.1/one2one_cv3.1.2/Conv_output_0",
-    "/model.23/one2one_cv3.2/one2one_cv3.2.2/Conv_output_0",
-]
+OUTPUT_NODES = __OUTPUT_NODES__
+OUTPUT_NAMES = [node["name"] for node in OUTPUT_NODES]
 
 
 def main():
@@ -169,8 +169,8 @@ def main():
     simplify_or_copy(extracted, sim)
     pack_images(images_dir, args.images_num, tmp_images / "images.tar")
 
-    build_model("NPU1", "vnpu", sim, config_dir / "yolo26_vnpu.json", out_dir, args.model_name, args.images_num, args.fast)
-    build_model("NPU2", "npu", sim, config_dir / "yolo26_npu.json", out_dir, args.model_name, args.images_num, args.fast)
+    build_model("NPU1", "vnpu", sim, config_dir / "__YOLO_VERSION___vnpu.json", out_dir, args.model_name, args.images_num, args.fast)
+    build_model("NPU2", "npu", sim, config_dir / "__YOLO_VERSION___npu.json", out_dir, args.model_name, args.images_num, args.fast)
     print("done")
     subprocess.run(["ls", "-lh", str(out_dir)], check=False)
 
@@ -178,13 +178,13 @@ def main():
 def extract_onnx(input_path: Path, output_path: Path):
     print("Step 1: extract ONNX outputs")
     try:
-        onnx.utils.extract_model(str(input_path), str(output_path), ["images"], OUTPUT_NODES)
+        onnx.utils.extract_model(str(input_path), str(output_path), ["images"], OUTPUT_NAMES)
     except ValueError:
         model = onnx.load(input_path)
         inferred = onnx.shape_inference.infer_shapes(model)
         inferred_path = output_path.with_suffix(".inferred.onnx")
         onnx.save(inferred, inferred_path)
-        onnx.utils.extract_model(str(inferred_path), str(output_path), ["images"], OUTPUT_NODES)
+        onnx.utils.extract_model(str(inferred_path), str(output_path), ["images"], OUTPUT_NAMES)
     print("saved:", output_path)
 
 
@@ -242,13 +242,7 @@ def make_config(npu_mode: str, config_path: Path, images_num: int, fast: bool):
                 "csc_mode": "NoCSC",
             }
         ],
-        "output_processors": [
-            {
-                "tensor_name": name,
-                "dst_perm": [0, 2, 3, 1],
-            }
-            for name in OUTPUT_NODES
-        ],
+        "output_processors": make_output_processors(),
         "compiler": {
             "check": 0 if fast else 3,
             "check_mode": "CheckOutput",
@@ -258,6 +252,16 @@ def make_config(npu_mode: str, config_path: Path, images_num: int, fast: bool):
     with config_path.open("w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
     print("saved config:", config_path)
+
+
+def make_output_processors():
+    processors = []
+    for node in OUTPUT_NODES:
+        processor = {"tensor_name": node["name"]}
+        if node.get("dst_perm"):
+            processor["dst_perm"] = node["dst_perm"]
+        processors.append(processor)
+    return processors
 
 
 def build_model(npu_mode: str, suffix: str, onnx_path: Path, config_path: Path, out_dir: Path, model_name: str, images_num: int, fast: bool):
@@ -293,9 +297,11 @@ def build_model(npu_mode: str, suffix: str, onnx_path: Path, config_path: Path, 
 if __name__ == "__main__":
     main()
 '''
+    script = script.replace("__OUTPUT_NODES__", repr(output_nodes))
+    script = script.replace("__YOLO_VERSION__", profile.yolo_version)
     path.write_text(textwrap.dedent(script).lstrip(), encoding="utf-8")
 
 
-def new_job_dir(root: Path, model_name: str) -> Path:
+def new_job_dir(root: Path, model_name: str, profile: YoloProfile) -> Path:
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    return root / f"{stamp}_{model_name}_maixcam2_yolo26"
+    return root / f"{stamp}_{model_name}_maixcam2_{profile.yolo_version}"

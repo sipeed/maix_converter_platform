@@ -1,11 +1,13 @@
 # Maix Converter Platform
 
-当前第一阶段目标：YOLO26 detect + MaixCam2 + Pulsar2。
+当前阶段目标：YOLO detect + MaixCam2 + Pulsar2。
 
 支持输入：
 
 - YOLO26 `.onnx`
 - YOLO26 `.pt`，会先用 Ultralytics 导出 ONNX，再进入 MaixCam2 转换流程
+- YOLO11 `.onnx`
+- YOLO11 `.pt`，会先用 Ultralytics 导出 ONNX，再进入 MaixCam2 转换流程
 - 量化图片目录或 `.zip` 压缩包
 
 ## 输入目录
@@ -16,6 +18,7 @@
 inputs/
   models/
     yolo26n.pt
+    yolo11n.pt
   datasets/
     coco/
       000000000139.jpg
@@ -36,6 +39,18 @@ python convert_cli.py \
   --images-num 100
 ```
 
+默认使用 `--yolo-version yolo26`。转换 YOLO11 时指定 `--yolo-version yolo11`：
+
+```bash
+python convert_cli.py \
+  --model inputs/models/yolo11n.pt \
+  --dataset inputs/datasets/coco \
+  --model-name yolo11n \
+  --yolo-version yolo11 \
+  --imgsz 640 480 \
+  --images-num 100
+```
+
 使用 `.pt` 输入时，需要在安装了 `ultralytics` 的 Python 环境中执行，比如你的 conda `yolo` 环境：
 
 ```bash
@@ -44,6 +59,7 @@ python convert_cli.py \
   --model inputs/models/yolo26n.pt \
   --dataset inputs/datasets/coco \
   --model-name yolo26n \
+  --yolo-version yolo26 \
   --imgsz 640 480 \
   --images-num 100
 ```
@@ -57,6 +73,7 @@ python convert_cli.py \
   --model inputs/models/yolo26n.pt \
   --dataset inputs/datasets/coco.zip \
   --model-name yolo26n \
+  --yolo-version yolo26 \
   --imgsz 640 480 \
   --images-num 100
 ```
@@ -70,6 +87,7 @@ python convert_cli.py \
   --model inputs/models/yolo26n.pt \
   --dataset inputs/datasets \
   --model-name yolo26n \
+  --yolo-version yolo26 \
   --imgsz 640 480 \
   --images-num 100 \
   --fast
@@ -95,6 +113,17 @@ jobs/20260708_120000_yolo26n_maixcam2_yolo26/
 `job.json` 会记录本次转换参数、状态、输出目录、日志路径和 zip 路径。转换失败时也会写入 `status: failed` 和错误信息。
 
 `yolo26n_maixcam2_yolo26.zip` 可以直接解压后复制到 MaixCam2。
+
+## YOLO Profile
+
+当前只接入 MaixCam2 detect 任务：
+
+| YOLO 版本 | MUD `model_type` | 输出节点 |
+| --- | --- | --- |
+| YOLO26 | `yolo26` | `/model.23/one2one_cv2.0/one2one_cv2.0.2/Conv_output_0`<br>`/model.23/one2one_cv2.1/one2one_cv2.1.2/Conv_output_0`<br>`/model.23/one2one_cv2.2/one2one_cv2.2.2/Conv_output_0`<br>`/model.23/one2one_cv3.0/one2one_cv3.0.2/Conv_output_0`<br>`/model.23/one2one_cv3.1/one2one_cv3.1.2/Conv_output_0`<br>`/model.23/one2one_cv3.2/one2one_cv3.2.2/Conv_output_0` |
+| YOLO11 | `yolo11` | `/model.23/dfl/conv/Conv_output_0`<br>`/model.23/Sigmoid_output_0` |
+
+YOLO11 这里使用 MaixPy 文档里 MaixCam2 推荐的两个输出节点。不要使用 `/model.23/Concat_output_0`、`/model.23/Concat_1_output_0`、`/model.23/Concat_2_output_0` 这组三输出方案；它在 MaixCam2 上容易量化失败。
 
 ## Web API
 
@@ -145,6 +174,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F "model=@inputs/models/yolo26n.pt" \
   -F "dataset=@inputs/datasets.zip" \
   -F "model_name=yolo26n_web_test" \
+  -F "yolo_version=yolo26" \
   -F "images_num=100" \
   -F "imgsz_width=640" \
   -F "imgsz_height=480" \

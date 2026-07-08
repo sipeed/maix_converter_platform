@@ -175,7 +175,8 @@ h2 {
 }
 
 .field input[type="text"],
-.field input[type="number"] {
+.field input[type="number"],
+.field select {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line-strong);
