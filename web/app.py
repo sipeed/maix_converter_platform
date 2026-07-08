@@ -32,6 +32,7 @@ JOBS_DIR = BASE_DIR / "jobs"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODEL_SUFFIXES = {".pt", ".onnx"}
 DATASET_SUFFIXES = {".zip"}
+JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,180}")
 FINISHED_STATUSES = {"success", "failed"}
 ACTIVE_STATUSES = {"queued", "running"}
 JOBS_AUTO_CLEAN = os.getenv("MAIX_JOBS_AUTO_CLEAN", "1").lower() not in {"0", "false", "no", "off"}
@@ -351,9 +352,16 @@ def save_upload(upload: UploadFile, path: Path) -> None:
 
 
 def job_cleanup_loop() -> None:
-    cleanup_finished_jobs("startup")
+    run_cleanup_safely("startup")
     while not cleanup_stop_event.wait(JOBS_CLEAN_INTERVAL_SECONDS):
-        cleanup_finished_jobs("scheduled")
+        run_cleanup_safely("scheduled")
+
+
+def run_cleanup_safely(reason: str) -> None:
+    try:
+        cleanup_finished_jobs(reason)
+    except Exception as exc:
+        print(f"[job-cleanup] cleanup failed during {reason}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def cleanup_finished_jobs(reason: str) -> dict:
@@ -363,9 +371,7 @@ def cleanup_finished_jobs(reason: str) -> dict:
         return {"deleted": [], "failed": [], "reason": reason}
 
     candidates = []
-    for job_dir in JOBS_DIR.iterdir():
-        if not job_dir.is_dir():
-            continue
+    for job_dir in iter_job_dirs():
         try:
             job = read_job_json(job_dir)
         except HTTPException:
@@ -415,7 +421,10 @@ def get_job_sort_time(job_dir: Path, job: dict) -> datetime:
         value = job.get(key)
         if isinstance(value, str) and value:
             try:
-                return datetime.fromisoformat(value)
+                parsed = datetime.fromisoformat(value)
+                if parsed.tzinfo is not None:
+                    parsed = parsed.astimezone().replace(tzinfo=None)
+                return parsed
             except ValueError:
                 pass
     return datetime.fromtimestamp(job_dir.stat().st_mtime)
@@ -487,27 +496,50 @@ def read_job_summary(job_dir: Path) -> dict:
 
 def read_jobs_list() -> list[dict]:
     jobs = []
-    if JOBS_DIR.exists():
-        for path in sorted(JOBS_DIR.iterdir(), reverse=True):
-            if path.is_dir():
-                jobs.append(read_job_summary(path))
+    for path in sorted(iter_job_dirs(), reverse=True):
+        jobs.append(read_job_summary(path))
     return jobs
+
+
+def iter_job_dirs() -> list[Path]:
+    if not JOBS_DIR.exists():
+        return []
+    root = JOBS_DIR.resolve()
+    job_dirs = []
+    for path in JOBS_DIR.iterdir():
+        if not path.is_dir() or not JOB_ID_PATTERN.fullmatch(path.name):
+            continue
+        try:
+            if not is_relative_to(path.resolve(), root):
+                continue
+        except OSError:
+            continue
+        job_dirs.append(path)
+    return job_dirs
 
 
 def read_job_json(job_dir: Path) -> dict:
     path = job_dir / "job.json"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="job metadata not found")
-    with path.open("r", encoding="utf-8") as f:
-        job = json.load(f)
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            job = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=500, detail=f"invalid job metadata: {exc}") from exc
     job.setdefault("job_id", job_dir.name)
     return job
 
 
 def get_job_dir(job_id: str) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", job_id):
+    if not JOB_ID_PATTERN.fullmatch(job_id):
         raise HTTPException(status_code=400, detail="invalid job_id")
     job_dir = JOBS_DIR / job_id
+    try:
+        if not is_relative_to(job_dir.resolve(), JOBS_DIR.resolve()):
+            raise HTTPException(status_code=400, detail="invalid job_id")
+    except FileNotFoundError:
+        pass
     if not job_dir.is_dir():
         raise HTTPException(status_code=404, detail="job not found")
     return job_dir
