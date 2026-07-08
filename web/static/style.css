@@ -175,8 +175,7 @@ h2 {
 }
 
 .field input[type="text"],
-.field input[type="number"],
-.field select {
+.field input[type="number"] {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line-strong);
@@ -187,9 +186,46 @@ h2 {
   outline: none;
 }
 
-.field input:focus {
+.field input:focus,
+.select-control:focus-within select {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(23, 105, 224, 0.14);
+}
+
+.select-control {
+  position: relative;
+  display: block;
+}
+
+.select-control select {
+  width: 100%;
+  min-height: 44px;
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 650;
+  outline: none;
+  padding: 9px 42px 9px 12px;
+}
+
+.select-control::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid var(--blue);
+  border-right: 2px solid var(--blue);
+  pointer-events: none;
+  transform: translateY(-65%) rotate(45deg);
+}
+
+.select-control:hover select {
+  border-color: var(--blue);
 }
 
 .native-file {
