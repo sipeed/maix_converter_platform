@@ -4,6 +4,13 @@ const datasetFile = document.querySelector("#datasetFile");
 const modelFileName = document.querySelector("#modelFileName");
 const datasetFileName = document.querySelector("#datasetFileName");
 const modelName = document.querySelector("#modelName");
+const yoloVersionInput = document.querySelector("#yoloVersionInput");
+const yoloSelect = document.querySelector("#yoloSelect");
+const yoloSelectButton = document.querySelector("#yoloSelectButton");
+const yoloSelectLabel = document.querySelector("#yoloSelectLabel");
+const yoloSelectMeta = document.querySelector("#yoloSelectMeta");
+const yoloSelectMenu = document.querySelector("#yoloSelectMenu");
+const yoloSelectOptions = Array.from(document.querySelectorAll(".select-option"));
 const submitButton = document.querySelector("#submitButton");
 const serverState = document.querySelector("#serverState");
 const jobStatus = document.querySelector("#jobStatus");
@@ -69,6 +76,42 @@ refreshButton.addEventListener("click", () => {
 });
 
 reloadJobs.addEventListener("click", refreshJobsList);
+
+yoloSelectButton.addEventListener("click", () => {
+  setYoloMenuOpen(yoloSelectMenu.hidden);
+});
+
+yoloSelectButton.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    setYoloMenuOpen(true);
+    focusActiveYoloOption();
+  }
+});
+
+yoloSelectOptions.forEach((option) => {
+  option.addEventListener("click", () => {
+    setYoloVersion(option.dataset.value, option.dataset.label, option.dataset.meta);
+    setYoloMenuOpen(false);
+    yoloSelectButton.focus();
+  });
+
+  option.addEventListener("keydown", (event) => {
+    handleYoloOptionKeydown(event, option);
+  });
+});
+
+document.addEventListener("click", (event) => {
+  if (!yoloSelect.contains(event.target)) {
+    setYoloMenuOpen(false);
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setYoloMenuOpen(false);
+  }
+});
 
 async function checkHealth() {
   try {
@@ -222,6 +265,49 @@ function formatLabelsAndImages(job) {
 function setStatus(status) {
   jobStatus.textContent = statusText(status);
   jobStatus.className = `status-badge ${status || "idle"}`;
+}
+
+function setYoloMenuOpen(open) {
+  yoloSelectMenu.hidden = !open;
+  yoloSelectButton.setAttribute("aria-expanded", open ? "true" : "false");
+  yoloSelect.classList.toggle("open", open);
+}
+
+function setYoloVersion(value, label, meta) {
+  yoloVersionInput.value = value;
+  yoloSelectLabel.textContent = label || value;
+  yoloSelectMeta.textContent = meta || "Detect";
+  yoloSelectOptions.forEach((option) => {
+    const selected = option.dataset.value === value;
+    option.classList.toggle("active", selected);
+    option.setAttribute("aria-selected", selected ? "true" : "false");
+  });
+}
+
+function focusActiveYoloOption() {
+  const active = yoloSelectOptions.find((option) => option.classList.contains("active"));
+  (active || yoloSelectOptions[0])?.focus();
+}
+
+function handleYoloOptionKeydown(event, option) {
+  const currentIndex = yoloSelectOptions.indexOf(option);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const offset = event.key === "ArrowDown" ? 1 : -1;
+    const nextIndex = (currentIndex + offset + yoloSelectOptions.length) % yoloSelectOptions.length;
+    yoloSelectOptions[nextIndex].focus();
+  } else if (event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    yoloSelectOptions[event.key === "Home" ? 0 : yoloSelectOptions.length - 1].focus();
+  } else if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    setYoloVersion(option.dataset.value, option.dataset.label, option.dataset.meta);
+    setYoloMenuOpen(false);
+    yoloSelectButton.focus();
+  } else if (event.key === "Escape") {
+    setYoloMenuOpen(false);
+    yoloSelectButton.focus();
+  }
 }
 
 function statusText(status) {

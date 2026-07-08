@@ -49,16 +49,38 @@
             <input id="modelName" name="model_name" type="text" placeholder="yolo26n" />
           </label>
 
-          <label class="field">
+          <div class="field">
             <span>YOLO 版本</span>
-            <span class="select-control">
-              <select name="yolo_version">
-                <option value="yolo26" selected>YOLO26 Detect</option>
-                <option value="yolo11">YOLO11 Detect</option>
-                <option value="yolov8">YOLOv8 Detect</option>
-              </select>
+            <input id="yoloVersionInput" name="yolo_version" type="hidden" value="yolo26" />
+            <span class="select-control" id="yoloSelect">
+              <button class="select-button" id="yoloSelectButton" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span class="select-value">
+                  <strong id="yoloSelectLabel">YOLO26</strong>
+                  <em id="yoloSelectMeta">Detect</em>
+                </span>
+              </button>
+              <span class="select-menu" id="yoloSelectMenu" role="listbox" hidden>
+                <button class="select-option active" type="button" role="option" data-value="yolo26" data-label="YOLO26" data-meta="Detect" aria-selected="true">
+                  <span>
+                    <strong>YOLO26</strong>
+                    <em>Detect</em>
+                  </span>
+                </button>
+                <button class="select-option" type="button" role="option" data-value="yolo11" data-label="YOLO11" data-meta="Detect" aria-selected="false">
+                  <span>
+                    <strong>YOLO11</strong>
+                    <em>Detect</em>
+                  </span>
+                </button>
+                <button class="select-option" type="button" role="option" data-value="yolov8" data-label="YOLOv8" data-meta="Detect" aria-selected="false">
+                  <span>
+                    <strong>YOLOv8</strong>
+                    <em>Detect</em>
+                  </span>
+                </button>
+              </span>
             </span>
-          </label>
+          </div>
 
           <div class="grid-two">
             <label class="field">
