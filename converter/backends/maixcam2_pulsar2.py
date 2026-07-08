@@ -67,8 +67,6 @@ def run_pulsar2_job(
     images_num: int,
     fast: bool = False,
 ) -> None:
-    host_uid = os.getuid()
-    host_gid = os.getgid()
     cmd = [
         "docker",
         "run",
@@ -83,10 +81,16 @@ def run_pulsar2_job(
         "cd /data\n"
         f"python convert_inside_docker.py --model-name {shlex.quote(model_name)} --images-num {images_num}{fast_arg}\n"
         "status=$?\n"
-        f"chown -R {host_uid}:{host_gid} /data || true\n"
+        f"{host_chown_command()}"
         "exit $status\n"
     )
     run_and_log(cmd, job_dir / "convert.log", stdin_text=stdin_text)
+
+
+def host_chown_command() -> str:
+    if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
+        return ""
+    return f"chown -R {os.getuid()}:{os.getgid()} /data || true\n"
 
 
 def run_and_log(cmd: list[str], log_path: Path, stdin_text: str | None = None) -> None:

@@ -63,6 +63,15 @@ pip install ultralytics onnx
 
 平台使用 Docker 运行 Pulsar2 转换环境。你需要先安装 Docker，并确认当前用户可以执行 `docker`。
 
+Windows 建议安装 Docker Desktop，并启用 WSL2 backend。项目所在磁盘需要能被 Docker Desktop 访问，否则后续转换时可能无法把 `jobs/` 目录挂载进容器。安装完成后打开 PowerShell 或 Anaconda Prompt 检查：
+
+```bash
+docker --version
+docker ps
+```
+
+Linux 用户可以参考下面的 Ubuntu / Debian 命令。
+
 Ubuntu / Debian 可以参考：
 
 ```bash

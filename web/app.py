@@ -435,7 +435,10 @@ def remove_job_dir(job_dir: Path, docker_image: str) -> None:
         rmtree(job_dir)
         return
     except PermissionError:
-        repair_job_owner_with_docker(job_dir, docker_image=docker_image)
+        if supports_posix_ids():
+            repair_job_owner_with_docker(job_dir, docker_image=docker_image)
+        else:
+            make_tree_writable(job_dir)
 
     try:
         rmtree(job_dir)
@@ -447,6 +450,11 @@ def remove_job_dir(job_dir: Path, docker_image: str) -> None:
 
 
 def repair_job_owner_with_docker(job_dir: Path, docker_image: str) -> None:
+    if not supports_posix_ids():
+        raise HTTPException(
+            status_code=500,
+            detail="failed to delete job because permission repair with chown is not supported on this platform",
+        )
     uid = os.getuid()
     gid = os.getgid()
     cmd = [
@@ -475,6 +483,22 @@ def repair_job_owner_with_docker(job_dir: Path, docker_image: str) -> None:
             status_code=500,
             detail="failed to repair Docker-generated file permissions before delete:\n" + result.stdout,
         )
+
+
+def supports_posix_ids() -> bool:
+    return hasattr(os, "getuid") and hasattr(os, "getgid")
+
+
+def make_tree_writable(root: Path) -> None:
+    for path in sorted(root.rglob("*"), reverse=True):
+        try:
+            path.chmod(0o700 if path.is_dir() else 0o600)
+        except OSError:
+            pass
+    try:
+        root.chmod(0o700)
+    except OSError:
+        pass
 
 
 def read_job_summary(job_dir: Path) -> dict:
