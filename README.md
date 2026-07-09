@@ -434,6 +434,16 @@ yolo11n_vnpu.axmodel
 
 这个选项会影响输出节点选择和 `.mud` 里的 `model_type`，必须和模型实际版本对应。
 
+当前支持的是 Detect 任务，不包含 pose、seg、obb。YOLO11 和 YOLOv8 的 `.pt -> .onnx` 导出使用当前 Python 环境里的 `ultralytics` 包；如果上传 `.onnx`，平台会直接使用 ONNX 进入后续转换。
+
+| 选项 | `.mud` model_type | Detect 输出节点 |
+|------|-------------------|-----------------|
+| YOLO26 | `yolo26` | 6 个 `one2one_cv2 / one2one_cv3` 输出 |
+| YOLO11 | `yolo11` | `/model.23/dfl/conv/Conv_output_0` 和 `/model.23/Sigmoid_output_0` |
+| YOLOv8 | `yolov8` | `/model.22/dfl/conv/Conv_output_0` 和 `/model.22/Sigmoid_output_0` |
+
+这里的 YOLO11 / YOLOv8 Detect 节点选择对应 MaixPy 文档里的方案二。它会让更多计算进入模型参与量化，适合 MaixCAM / MaixCAM Pro；当前平台也用这套节点生成 MaixCam2 模型。
+
 ### 图片数量
 
 参与量化校准的图片数量。这个数量不能超过 zip 里实际图片数量。
