@@ -4,6 +4,9 @@ __pycache__/
 .venv/
 venv/
 
+# 前端依赖（构建产物 web/static/ 仍提交，便于直接运行）
+frontend/node_modules/
+
 jobs/
 inputs/
 tmp/

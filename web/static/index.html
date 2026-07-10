@@ -3,17 +3,37 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f8fb" />
     <title>Maix Converter Platform</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <script defer src="/static/assets/i18n.js"></script>
+    <script type="module" crossorigin src="/static/assets/index-D2kaw-2a.js"></script>
+    <link rel="stylesheet" crossorigin href="/static/assets/index-fd0NrdWd.css" />
+    <link rel="stylesheet" href="/static/assets/polish.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
-        <h1>Maix Converter</h1>
+        <img class="brand-mark" src="/static/assets/sipeed.png" alt="Sipeed" />
+        <span class="brand-copy">
+          <h1>Maix Converter</h1>
+          <span>模型转换工作台</span>
+        </span>
       </div>
       <div class="topbar-meta">
         <div class="support-chip">MaixCam / MaixCam2 · YOLO26 · YOLO11 · YOLOv8</div>
-        <div class="server-state" id="serverState">API 检查中</div>
+        <span class="env-badge" id="envBadge" hidden></span>
+        <label class="language-control" title="语言" aria-label="语言">
+          <span data-i18n="language.label">语言</span>
+          <select id="languageSelect"></select>
+        </label>
+        <button class="theme-toggle" id="themeToggle" type="button" title="切换主题" aria-label="切换深色/浅色主题">
+          <span class="theme-icon theme-icon-light">☀</span>
+          <span class="theme-icon theme-icon-dark">☾</span>
+        </button>
+        <div class="server-state" id="serverState">
+          <span class="conn-dot" id="connDot"></span>
+          <span id="serverStateText">API 检查中</span>
+        </div>
       </div>
     </header>
 
@@ -27,26 +47,25 @@
         <form id="jobForm" class="job-form">
           <div class="field">
             <span>模型文件</span>
-            <label class="file-control" for="modelFile">
+            <label class="file-control" for="modelFile" id="modelFileControl" aria-describedby="modelFileName" data-drag-text="松开上传模型文件">
               <strong>选择模型</strong>
-              <em id="modelFileName">支持 .pt / .onnx</em>
+              <em id="modelFileName">支持 .pt / .onnx（支持拖拽上传）</em>
             </label>
+            <span class="file-info" id="modelFileInfo" hidden></span>
             <input id="modelFile" class="native-file" name="model" type="file" accept=".pt,.onnx" required />
           </div>
 
           <div class="field">
             <span>量化数据集</span>
-            <label class="file-control" for="datasetFile">
-              <strong>选择数据集</strong>
-              <em id="datasetFileName">上传 .zip 文件</em>
+            <label class="file-control" for="datasetFile" id="datasetFileControl" aria-describedby="datasetFileName" data-drag-text="松开上传数据集文件">
+              <strong>上传数据集</strong>
+              <em id="datasetFileName">支持 .zip（支持拖拽上传）</em>
             </label>
+            <span class="file-info" id="datasetFileInfo" hidden></span>
             <input id="datasetFile" class="native-file" name="dataset" type="file" accept=".zip" required />
           </div>
 
-          <label class="field">
-            <span>模型名称</span>
-            <input id="modelName" name="model_name" type="text" placeholder="yolo26n" />
-          </label>
+          <input id="modelName" name="model_name" type="hidden" value="" />
 
           <div class="field">
             <span>目标设备</span>
@@ -104,7 +123,8 @@
           <div class="grid-two">
             <label class="field">
               <span>图片数量</span>
-              <input name="images_num" type="number" min="1" value="100" required />
+              <input id="imagesNum" name="images_num" type="number" min="1" max="5000" value="100" required />
+              <span class="field-error" id="imagesNumError" hidden></span>
             </label>
             <label class="field toggle-field">
               <input name="fast" type="checkbox" checked />
@@ -115,15 +135,19 @@
           <div class="grid-two">
             <label class="field">
               <span>宽度</span>
-              <input name="imgsz_width" type="number" min="32" step="32" value="640" required />
+              <input id="imgszWidth" name="imgsz_width" type="number" min="32" max="4096" step="32" value="640" required />
+              <span class="field-error" id="imgszWidthError" hidden></span>
             </label>
             <label class="field">
               <span>高度</span>
-              <input name="imgsz_height" type="number" min="32" step="32" value="480" required />
+              <input id="imgszHeight" name="imgsz_height" type="number" min="32" max="4096" step="32" value="480" required />
+              <span class="field-error" id="imgszHeightError" hidden></span>
             </label>
           </div>
 
-          <button id="submitButton" class="primary-button" type="submit">开始转换</button>
+          <div class="form-actions">
+            <button id="submitButton" class="primary-button" type="submit">开始转换</button>
+          </div>
           <div class="upload-progress" id="uploadProgress">
             <div class="upload-progress-bar" id="uploadProgressBar"></div>
           </div>
@@ -173,13 +197,52 @@
             <span>模式</span>
             <strong id="jobMode">-</strong>
           </div>
+          <div>
+            <span>耗时</span>
+            <strong id="jobElapsed">-</strong>
+          </div>
+        </div>
+
+        <div class="stage-progress" id="stageProgress" hidden>
+          <div class="stage-step" data-stage="prepare">
+            <span class="stage-dot"></span>
+            <span class="stage-label">数据集准备</span>
+          </div>
+          <div class="stage-step" data-stage="export">
+            <span class="stage-dot"></span>
+            <span class="stage-label">ONNX 导出</span>
+          </div>
+          <div class="stage-step" data-stage="prebuild">
+            <span class="stage-dot"></span>
+            <span class="stage-label">任务准备</span>
+          </div>
+          <div class="stage-step" data-stage="pulsar2">
+            <span class="stage-dot"></span>
+            <span class="stage-label" id="conversionStageLabel">Pulsar2 转换</span>
+          </div>
+          <div class="stage-step" data-stage="package">
+            <span class="stage-dot"></span>
+            <span class="stage-label">打包结果</span>
+          </div>
         </div>
 
         <div class="job-error" id="jobError" hidden></div>
 
         <div class="actions">
           <button id="refreshButton" class="secondary-button" type="button">刷新</button>
-          <a id="downloadButton" class="download-button disabled" href="#" aria-disabled="true">下载结果</a>
+          <button id="cancelJobButton" class="danger-button" type="button" hidden>取消任务</button>
+          <a id="downloadButton" class="download-button disabled" href="#" aria-disabled="true" title="任务完成后可下载">下载结果</a>
+        </div>
+
+        <div class="log-toolbar" id="logToolbar" hidden>
+          <button class="log-tool-btn" type="button" id="logCopyBtn" title="复制日志">复制</button>
+          <button class="log-tool-btn" type="button" id="logDownloadBtn" title="下载日志">下载</button>
+          <button class="log-tool-btn" type="button" id="logClearBtn" title="清空显示">清空</button>
+          <label class="log-tool-toggle" title="自动滚动到底部">
+            <input type="checkbox" id="logAutoScroll" checked />
+            <span>自动滚动</span>
+          </label>
+          <span class="log-truncation" id="logTruncation" hidden>日志已截断，完整日志请下载</span>
         </div>
 
         <pre id="logView" class="log-view">等待任务输出...</pre>
@@ -191,9 +254,21 @@
         <h2>最近任务</h2>
         <button id="reloadJobs" class="secondary-button" type="button">更新列表</button>
       </div>
+      <div class="jobs-filter" id="jobsFilter">
+        <button class="filter-btn active" type="button" data-filter="all">全部</button>
+        <button class="filter-btn" type="button" data-filter="running">运行中</button>
+        <button class="filter-btn" type="button" data-filter="success">已完成</button>
+        <button class="filter-btn" type="button" data-filter="failed">失败</button>
+        <button class="filter-btn" type="button" data-filter="cancelled">已取消</button>
+        <span class="jobs-count" id="jobsCount"></span>
+      </div>
       <div id="jobsList" class="jobs-list"></div>
     </section>
 
-    <script src="/static/app.js"></script>
+    <!-- Toast 容器 -->
+    <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="false"></div>
+    <!-- Modal 挂载点 -->
+    <div class="modal-root" id="modalRoot" aria-hidden="true"></div>
+
   </body>
 </html>
