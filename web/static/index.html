@@ -14,16 +14,26 @@
         <img class="brand-mark" src="/static/sipeed.png" alt="Sipeed" />
         <div class="brand-copy">
           <h1>Maix Converter</h1>
-          <p data-i18n="app.subtitle">MaixCam / MaixCam2 模型转换工作台</p>
         </div>
       </div>
       <div class="top-actions">
+        <span class="support-chip" data-i18n="app.subtitle">MaixCam / MaixCam2 模型转换工作台</span>
         <div class="language-control">
-          <label for="languageSelect" data-i18n="app.language">语言</label>
-          <select id="languageSelect" aria-label="Language">
-            <option value="zh-CN">中文</option>
-            <option value="en-US">English</option>
-          </select>
+          <span id="languageLabel" data-i18n="app.language">语言</span>
+          <input id="languageSelect" type="hidden" value="zh-CN" />
+          <span class="select-control language-select-control" id="languageSelectControl">
+            <button class="select-button" id="languageSelectButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="languageLabel languageSelectValue">
+              <span class="select-value"><strong id="languageSelectValue">中文</strong></span>
+            </button>
+            <span class="select-menu" id="languageSelectMenu" role="listbox" hidden>
+              <button class="select-option language-option active" type="button" role="option" data-value="zh-CN" data-label="中文" aria-selected="true">
+                <span><strong>中文</strong></span>
+              </button>
+              <button class="select-option language-option" type="button" role="option" data-value="en-US" data-label="English" aria-selected="false">
+                <span><strong>English</strong></span>
+              </button>
+            </span>
+          </span>
         </div>
         <button id="themeButton" class="ghost-button" type="button" data-i18n="actions.theme">主题</button>
         <span id="serverState" class="server-state checking" data-i18n="server.checking">API 检查中</span>
@@ -33,101 +43,99 @@
     <main class="layout">
       <section class="panel form-panel">
         <div class="panel-head">
-          <div>
-            <p class="eyebrow" data-i18n="jobForm.eyebrow">新建任务</p>
-            <h2 data-i18n="jobForm.title">转换任务</h2>
-          </div>
-          <span class="pill">Docker</span>
+          <h2 data-i18n="jobForm.title">转换任务</h2>
+          <span class="pill" id="toolchainBadge">Pulsar2</span>
         </div>
 
         <form id="jobForm" class="job-form">
-          <fieldset class="form-group upload-group">
-            <legend data-i18n="jobForm.filesGroup">输入文件</legend>
-            <label class="field upload-field">
-              <span class="field-label" data-i18n="jobForm.modelFile">模型文件</span>
-              <input id="modelFile" class="native-file" name="model" type="file" accept=".pt,.onnx" required />
-              <span class="upload-card">
-                <span class="upload-icon">PT</span>
-                <span class="upload-copy">
-                  <strong data-i18n="jobForm.modelChoose">选择模型文件</strong>
-                  <small id="modelFileHelp" data-i18n="jobForm.modelHelp">支持 .pt / .onnx</small>
-                  <small class="upload-hint" data-i18n="jobForm.dragHint">点击选择，或拖拽文件到这里</small>
-                </span>
-              </span>
+          <div class="field upload-field">
+            <span data-i18n="jobForm.modelFile">模型文件</span>
+            <label class="file-control" for="modelFile">
+              <strong data-i18n="jobForm.modelChoose">选择模型</strong>
+              <em id="modelFileHelp" data-i18n="jobForm.modelHelp">支持 .pt / .onnx</em>
             </label>
+            <input id="modelFile" class="native-file" name="model" type="file" accept=".pt,.onnx" required />
+          </div>
 
-            <label class="field upload-field">
-              <span class="field-label" data-i18n="jobForm.datasetFile">量化数据集</span>
-              <input id="datasetFile" class="native-file" name="dataset" type="file" accept=".zip" required />
-              <span class="upload-card">
-                <span class="upload-icon">ZIP</span>
-                <span class="upload-copy">
-                  <strong data-i18n="jobForm.datasetChoose">选择数据集</strong>
-                  <small id="datasetFileHelp" data-i18n="jobForm.datasetHelp">上传包含量化图片的 .zip 文件</small>
-                  <small class="upload-hint" data-i18n="jobForm.dragHint">点击选择，或拖拽文件到这里</small>
-                </span>
-              </span>
+          <div class="field upload-field">
+            <span data-i18n="jobForm.datasetFile">量化数据集</span>
+            <label class="file-control" for="datasetFile">
+              <strong data-i18n="jobForm.datasetChoose">选择数据集</strong>
+              <em id="datasetFileHelp" data-i18n="jobForm.datasetHelp">上传 .zip 文件</em>
             </label>
-          </fieldset>
+            <input id="datasetFile" class="native-file" name="dataset" type="file" accept=".zip" required />
+          </div>
 
-          <input id="modelName" name="model_name" type="hidden" />
+          <label class="field">
+            <span data-i18n="jobForm.modelName">模型名称</span>
+            <input id="modelName" name="model_name" type="text" placeholder="yolo26n" />
+          </label>
 
-          <fieldset class="form-group target-group">
-            <legend data-i18n="jobForm.targetGroup">目标平台</legend>
-            <div class="field">
-              <span data-i18n="jobForm.target">目标设备</span>
-              <div class="segmented">
-                <label>
-                  <input type="radio" name="target" value="maixcam2" checked />
-                  <span>
-                    <strong>MaixCam2</strong>
-                    <small>AX620E</small>
-                  </span>
-                </label>
-                <label>
-                  <input type="radio" name="target" value="maixcam" />
-                  <span>
-                    <strong>MaixCAM / Pro</strong>
-                    <small>CV181x</small>
-                  </span>
-                </label>
-              </div>
+          <div class="field">
+            <span data-i18n="jobForm.target">目标设备</span>
+            <div class="segmented-control" role="radiogroup" aria-label="目标设备">
+              <label>
+                <input type="radio" name="target" value="maixcam2" checked />
+                <span>
+                  <strong>MaixCam2</strong>
+                  <em>Pulsar2 / AX620E</em>
+                </span>
+              </label>
+              <label>
+                <input type="radio" name="target" value="maixcam" />
+                <span>
+                  <strong>MaixCAM / Pro</strong>
+                  <em>TPU-MLIR / CV181x</em>
+                </span>
+              </label>
             </div>
-          </fieldset>
+          </div>
 
-          <fieldset class="form-group params-group">
-            <legend data-i18n="jobForm.paramsGroup">转换参数</legend>
+          <div class="field">
+            <span data-i18n="jobForm.yoloVersion">YOLO 版本</span>
+            <input id="yoloVersion" name="yolo_version" type="hidden" value="yolo26" />
+            <span class="select-control" id="yoloSelect">
+              <button class="select-button" id="yoloSelectButton" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span class="select-value">
+                  <strong id="yoloSelectLabel">YOLO26</strong>
+                  <em id="yoloSelectMeta">Detect</em>
+                </span>
+              </button>
+              <span class="select-menu" id="yoloSelectMenu" role="listbox" hidden>
+                <button class="select-option active" type="button" role="option" data-value="yolo26" data-label="YOLO26" data-meta="Detect" aria-selected="true">
+                  <span><strong>YOLO26</strong><em>Detect</em></span>
+                </button>
+                <button class="select-option" type="button" role="option" data-value="yolo11" data-label="YOLO11" data-meta="Detect" aria-selected="false">
+                  <span><strong>YOLO11</strong><em>Detect</em></span>
+                </button>
+                <button class="select-option" type="button" role="option" data-value="yolov8" data-label="YOLOv8" data-meta="Detect" aria-selected="false">
+                  <span><strong>YOLOv8</strong><em>Detect</em></span>
+                </button>
+              </span>
+            </span>
+          </div>
+
+          <div class="grid-two">
             <label class="field">
-              <span data-i18n="jobForm.yoloVersion">YOLO 版本</span>
-              <select id="yoloVersion" name="yolo_version">
-                <option value="yolo26">YOLO26</option>
-                <option value="yolo11">YOLO11</option>
-                <option value="yolov8">YOLOv8</option>
-              </select>
+              <span data-i18n="jobForm.imagesNum">图片数量</span>
+              <input id="imagesNum" name="images_num" type="number" min="1" max="5000" value="100" required />
             </label>
+            <label class="field toggle-field">
+              <input name="fast" type="checkbox" checked />
+              <span data-i18n="jobForm.fastMode">快速模式</span>
+            </label>
+          </div>
 
-            <div class="grid-two">
-              <label class="field">
-                <span data-i18n="jobForm.imagesNum">图片数量</span>
-                <input id="imagesNum" name="images_num" type="number" min="1" max="5000" value="100" required />
-              </label>
-              <label class="field checkbox-field">
-                <input name="fast" type="checkbox" checked />
-                <span data-i18n="jobForm.fastMode">快速模式</span>
-              </label>
-            </div>
-
-            <div class="grid-two">
-              <label class="field">
-                <span data-i18n="jobForm.width">宽度</span>
-                <input id="imgszWidth" name="imgsz_width" type="number" min="32" max="4096" step="32" value="640" required />
-              </label>
-              <label class="field">
-                <span data-i18n="jobForm.height">高度</span>
-                <input id="imgszHeight" name="imgsz_height" type="number" min="32" max="4096" step="32" value="480" required />
-              </label>
-            </div>
-          </fieldset>
+          <div class="grid-two">
+            <label class="field">
+              <span data-i18n="jobForm.width">宽度</span>
+              <input id="imgszWidth" name="imgsz_width" type="number" min="32" max="4096" step="32" value="640" required />
+            </label>
+            <label class="field">
+              <span data-i18n="jobForm.height">高度</span>
+              <input id="imgszHeight" name="imgsz_height" type="number" min="32" max="4096" step="32" value="480" required />
+            </label>
+          </div>
 
           <button id="submitButton" class="primary-button" type="submit" data-i18n="actions.startConvert">开始转换</button>
           <div class="progress" data-i18n-aria-label="upload.progressAria" aria-label="上传进度">
@@ -139,10 +147,7 @@
 
       <section class="panel monitor-panel">
         <div class="panel-head">
-          <div>
-            <p class="eyebrow" data-i18n="monitor.eyebrow">实时状态</p>
-            <h2 data-i18n="monitor.title">任务监控</h2>
-          </div>
+          <h2 data-i18n="monitor.title">任务监控</h2>
           <span id="jobStatus" class="status idle" data-i18n="status.notStarted">未开始</span>
         </div>
 
@@ -166,25 +171,29 @@
         </div>
 
         <div id="stageProgress" class="stages" aria-label="Conversion progress">
-          <span data-stage="prepare"><b>01</b><em data-i18n="stage.prepare">数据集准备</em></span>
-          <span data-stage="export"><b>02</b><em data-i18n="stage.export">ONNX 导出</em></span>
-          <span data-stage="prebuild"><b>03</b><em data-i18n="stage.prebuild">任务准备</em></span>
-          <span data-stage="convert"><b>04</b><em data-i18n="stage.convert">模型转换</em></span>
-          <span data-stage="package"><b>05</b><em data-i18n="stage.package">打包结果</em></span>
+          <span data-stage="prepare"><b aria-hidden="true"></b><em id="stageLabelPrepare">数据准备</em></span>
+          <span data-stage="export"><b aria-hidden="true"></b><em id="stageLabelExport">ONNX 导出</em></span>
+          <span data-stage="prebuild"><b aria-hidden="true"></b><em id="stageLabelPrebuild">Pulsar 配置</em></span>
+          <span data-stage="convert"><b aria-hidden="true"></b><em id="stageLabelConvert">Pulsar2 编译</em></span>
+          <span data-stage="package"><b aria-hidden="true"></b><em id="stageLabelPackage">AXModel 打包</em></span>
         </div>
 
         <p id="jobError" class="job-error" hidden></p>
 
-        <div class="actions">
-          <button id="refreshButton" class="secondary-button" type="button" data-i18n="actions.refresh">刷新</button>
-          <button id="cancelJobButton" class="danger-button" type="button" hidden data-i18n="actions.cancel">取消任务</button>
+        <div class="actions job-actions">
+          <div class="action-group">
+            <button id="refreshButton" class="secondary-button" type="button" data-i18n="actions.refresh">刷新</button>
+            <button id="cancelJobButton" class="danger-button" type="button" hidden data-i18n="actions.cancel">取消任务</button>
+          </div>
           <a id="downloadButton" class="download-button disabled" href="#" aria-disabled="true" data-i18n="actions.downloadResult">下载结果</a>
         </div>
 
         <div class="log-toolbar">
-          <button id="logCopyBtn" class="secondary-button" type="button" data-i18n="actions.copyLog">复制日志</button>
-          <button id="logDownloadBtn" class="secondary-button" type="button" data-i18n="actions.downloadLog">下载日志</button>
-          <button id="logClearBtn" class="secondary-button" type="button" data-i18n="actions.clearDisplay">清空显示</button>
+          <div class="log-actions">
+            <button id="logCopyBtn" class="log-tool-button" type="button" data-i18n="actions.copyLog">复制日志</button>
+            <button id="logDownloadBtn" class="log-tool-button" type="button" data-i18n="actions.downloadLog">下载日志</button>
+            <button id="logClearBtn" class="log-tool-button" type="button" data-i18n="actions.clearDisplay">清空显示</button>
+          </div>
           <label>
             <input id="logAutoScroll" type="checkbox" checked />
             <span data-i18n="actions.autoScroll">自动滚动</span>
@@ -196,10 +205,7 @@
 
     <section class="jobs-section">
       <div class="jobs-head">
-        <div>
-          <p class="eyebrow" data-i18n="jobs.eyebrow">历史记录</p>
-          <h2 data-i18n="jobs.title">最近任务</h2>
-        </div>
+        <h2 data-i18n="jobs.title">最近任务</h2>
         <button id="reloadJobs" class="secondary-button" type="button" data-i18n="actions.updateList">更新列表</button>
       </div>
       <div id="jobsFilter" class="filters">

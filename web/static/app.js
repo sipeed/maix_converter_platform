@@ -31,11 +31,12 @@
       "jobForm.targetGroup": "目标平台",
       "jobForm.paramsGroup": "转换参数",
       "jobForm.modelFile": "模型文件",
-      "jobForm.modelChoose": "选择模型文件",
+      "jobForm.modelName": "模型名称",
+      "jobForm.modelChoose": "选择模型",
       "jobForm.modelHelp": "支持 .pt / .onnx",
       "jobForm.datasetFile": "量化数据集",
       "jobForm.datasetChoose": "选择数据集",
-      "jobForm.datasetHelp": "上传包含量化图片的 .zip 文件",
+      "jobForm.datasetHelp": "上传 .zip 文件",
       "jobForm.dragHint": "点击选择，或拖拽文件到这里",
       "jobForm.target": "目标设备",
       "jobForm.yoloVersion": "YOLO 版本",
@@ -65,6 +66,19 @@
       "stage.prebuild": "任务准备",
       "stage.convert": "模型转换",
       "stage.package": "打包结果",
+      "stage.progress.maixcam2": "MaixCam2 转换流程",
+      "stage.progress.maixcam": "MaixCAM / Pro 转换流程",
+      "stage.maixcam2.prepare": "数据准备",
+      "stage.maixcam2.export": "ONNX 导出",
+      "stage.maixcam2.prebuild": "Pulsar 配置",
+      "stage.maixcam2.convert": "Pulsar2 编译",
+      "stage.maixcam2.package": "AXModel 打包",
+      "stage.maixcam.prepare": "数据准备",
+      "stage.maixcam.export": "ONNX 导出",
+      "stage.maixcam.prebuild": "MLIR 配置",
+      "stage.maixcam.convert": "量化部署",
+      "stage.maixcam.package": "CVIModel 打包",
+      "stage.skipped": "已跳过",
       "log.waiting": "等待任务输出...",
       "log.cleared": "日志已清空，等待新输出...",
       "log.copied": "日志已复制",
@@ -88,6 +102,8 @@
       "error.uploadFailed": "上传失败",
       "error.network": "网络请求失败",
       "error.noCurrentJob": "当前没有任务",
+      "auth.tokenPrompt": "请输入转换平台访问令牌",
+      "auth.required": "需要有效的访问令牌",
       "confirm.cancel": "确定取消任务 {jobId}？",
       "confirm.delete": "删除任务 {jobId}？任务目录和转换结果都会被删除。",
       "toast.jobCreated": "转换任务已创建",
@@ -124,11 +140,12 @@
       "jobForm.targetGroup": "Target platform",
       "jobForm.paramsGroup": "Conversion parameters",
       "jobForm.modelFile": "Model file",
-      "jobForm.modelChoose": "Choose model file",
+      "jobForm.modelName": "Model name",
+      "jobForm.modelChoose": "Choose model",
       "jobForm.modelHelp": "Supports .pt / .onnx",
       "jobForm.datasetFile": "Calibration dataset",
       "jobForm.datasetChoose": "Choose dataset",
-      "jobForm.datasetHelp": "Upload a .zip file with calibration images",
+      "jobForm.datasetHelp": "Upload a .zip file",
       "jobForm.dragHint": "Click to choose, or drag a file here",
       "jobForm.target": "Target device",
       "jobForm.yoloVersion": "YOLO version",
@@ -158,6 +175,19 @@
       "stage.prebuild": "Prepare job",
       "stage.convert": "Convert model",
       "stage.package": "Package result",
+      "stage.progress.maixcam2": "MaixCam2 conversion flow",
+      "stage.progress.maixcam": "MaixCAM / Pro conversion flow",
+      "stage.maixcam2.prepare": "Prepare data",
+      "stage.maixcam2.export": "Export ONNX",
+      "stage.maixcam2.prebuild": "Pulsar config",
+      "stage.maixcam2.convert": "Pulsar2 build",
+      "stage.maixcam2.package": "Package AXModel",
+      "stage.maixcam.prepare": "Prepare data",
+      "stage.maixcam.export": "Export ONNX",
+      "stage.maixcam.prebuild": "MLIR config",
+      "stage.maixcam.convert": "Quantize & deploy",
+      "stage.maixcam.package": "Package CVIModel",
+      "stage.skipped": "Skipped",
       "log.waiting": "Waiting for job output...",
       "log.cleared": "Log cleared. Waiting for new output...",
       "log.copied": "Log copied",
@@ -181,6 +211,8 @@
       "error.uploadFailed": "Upload failed",
       "error.network": "Network request failed",
       "error.noCurrentJob": "No current job",
+      "auth.tokenPrompt": "Enter the converter access token",
+      "auth.required": "A valid access token is required",
       "confirm.cancel": "Cancel job {jobId}?",
       "confirm.delete": "Delete job {jobId}? The job directory and conversion result will be removed.",
       "toast.jobCreated": "Conversion job created",
@@ -205,43 +237,91 @@
     uploadPercent: 0,
     uploadTextKey: "upload.waiting",
     uploadTextParams: {},
+    downloadedJobIds: new Set(),
+    openRequestId: 0,
   };
+  let uploadHideTimer = 0;
+  let authPromptPromise = null;
 
   const stageOrder = ["prepare", "export", "prebuild", "convert", "package"];
-  const stageMap = {
-    prepare_done: "prepare",
-    exporting: "export",
-    export_done: "export",
-    prebuilding: "prebuild",
-    prebuild_done: "prebuild",
-    pulsar2: "convert",
-    pulsar2_done: "convert",
-    tpumlir: "convert",
-    tpumlir_done: "convert",
-    packaging: "package",
-    done: "package",
+  const maxLogChars = 5_000_000;
+  const targetSizeDefaults = {
+    maixcam2: [640, 480],
+    maixcam: [320, 224],
+  };
+  const stageActiveIndex = {
+    prepare_done: 1,
+    exporting: 1,
+    export_done: 2,
+    prebuilding: 2,
+    prebuild_done: 3,
+    pulsar2: 3,
+    pulsar2_done: 4,
+    tpumlir: 3,
+    tpumlir_done: 4,
+    packaging: 4,
+    done: 4,
   };
 
   document.addEventListener("DOMContentLoaded", init);
 
-  function init() {
+  async function init() {
     restoreTheme();
     restoreLanguage();
     bindEvents();
+    updateToolchainBadge(document.querySelector('input[name="target"]:checked')?.value);
     applyI18n();
+    updateStageLabels(document.querySelector('input[name="target"]:checked')?.value);
     updateThemeButton();
     setServerState("checking");
-    checkHealth();
-    loadJobs();
-    subscribeJobs();
+    const token = consumeApiTokenFromUrl();
+    if (token) {
+      try {
+        await establishApiSession(token);
+      } catch (error) {
+        showToast(error.message);
+      }
+    }
+    if (await checkHealth()) {
+      await loadJobs();
+      subscribeJobs();
+    }
   }
 
   function bindEvents() {
-    $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
+    $("languageSelectButton").addEventListener("click", () => {
+      setLanguageMenuOpen($("languageSelectMenu").hidden);
+    });
+    $("languageSelectButton").addEventListener("keydown", handleLanguageButtonKeydown);
+    document.querySelectorAll("#languageSelectControl .language-option").forEach((option) => {
+      option.addEventListener("click", () => selectLanguageOption(option));
+      option.addEventListener("keydown", (event) => handleLanguageOptionKeydown(event, option));
+    });
     $("themeButton").addEventListener("click", toggleTheme);
     $("jobForm").addEventListener("submit", submitJob);
     $("modelFile").addEventListener("change", updateModelName);
     $("datasetFile").addEventListener("change", updateDatasetFileHelp);
+    document.querySelectorAll('input[name="target"]').forEach((input) => {
+      input.addEventListener("change", updateTargetDefaults);
+    });
+    $("yoloSelectButton").addEventListener("click", () => {
+      setYoloMenuOpen($("yoloSelectMenu").hidden);
+    });
+    $("yoloSelectButton").addEventListener("keydown", handleYoloButtonKeydown);
+    document.querySelectorAll("#yoloSelect .select-option").forEach((option) => {
+      option.addEventListener("click", () => selectYoloOption(option));
+      option.addEventListener("keydown", (event) => handleYoloOptionKeydown(event, option));
+    });
+    document.addEventListener("click", (event) => {
+      if (!$("yoloSelect").contains(event.target)) setYoloMenuOpen(false);
+      if (!$("languageSelectControl").contains(event.target)) setLanguageMenuOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        setYoloMenuOpen(false);
+        setLanguageMenuOpen(false);
+      }
+    });
     bindUploadDropZone("modelFile", /\.(pt|onnx)$/i, "validation.model", updateModelName);
     bindUploadDropZone("datasetFile", /\.zip$/i, "validation.dataset", updateDatasetFileHelp);
     $("refreshButton").addEventListener("click", refreshCurrentJob);
@@ -250,6 +330,7 @@
     $("logCopyBtn").addEventListener("click", copyLog);
     $("logDownloadBtn").addEventListener("click", downloadLog);
     $("logClearBtn").addEventListener("click", () => clearLog());
+    $("downloadButton").addEventListener("click", markResultDownloaded);
     $("jobsFilter").addEventListener("click", changeFilter);
   }
 
@@ -267,20 +348,26 @@
 
   function updateThemeButton() {
     const dark = document.documentElement.dataset.theme === "dark";
-    $("themeButton").textContent = t(dark ? "actions.lightMode" : "actions.darkMode");
+    const button = $("themeButton");
+    const label = t(dark ? "actions.lightMode" : "actions.darkMode");
+    button.textContent = dark ? "☀" : "☾";
+    button.title = label;
+    button.setAttribute("aria-label", label);
   }
 
   function restoreLanguage() {
     const saved = localStorage.getItem("maix_converter_language");
     const browser = (navigator.language || "zh-CN").toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
     state.language = messages[saved] ? saved : browser;
-    $("languageSelect").value = state.language;
+    updateLanguageSelect(state.language);
   }
 
   function setLanguage(language) {
     if (!messages[language]) return;
     state.language = language;
     localStorage.setItem("maix_converter_language", language);
+    updateLanguageSelect(language);
+    setLanguageMenuOpen(false);
     applyI18n();
     updateThemeButton();
     setServerState(state.serverState);
@@ -290,6 +377,7 @@
     if (state.currentJob) {
       renderJob(state.currentJob);
     } else {
+      updateStageLabels(document.querySelector('input[name="target"]:checked')?.value);
       setInitialJobStatus();
     }
     renderJobs();
@@ -309,6 +397,52 @@
     });
   }
 
+  function setLanguageMenuOpen(open) {
+    $("languageSelectMenu").hidden = !open;
+    $("languageSelectButton").setAttribute("aria-expanded", String(open));
+    $("languageSelectControl").classList.toggle("open", open);
+  }
+
+  function updateLanguageSelect(language) {
+    const option = document.querySelector(`#languageSelectControl .language-option[data-value="${language}"]`);
+    $("languageSelect").value = language;
+    $("languageSelectValue").textContent = option?.dataset.label || language;
+    document.querySelectorAll("#languageSelectControl .language-option").forEach((item) => {
+      const selected = item.dataset.value === language;
+      item.classList.toggle("active", selected);
+      item.setAttribute("aria-selected", String(selected));
+    });
+  }
+
+  function selectLanguageOption(option) {
+    setLanguage(option.dataset.value);
+    $("languageSelectButton").focus();
+  }
+
+  function handleLanguageButtonKeydown(event) {
+    if (!["ArrowDown", "Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    setLanguageMenuOpen(true);
+    const active = document.querySelector("#languageSelectControl .language-option.active") || document.querySelector("#languageSelectControl .language-option");
+    active?.focus();
+  }
+
+  function handleLanguageOptionKeydown(event, option) {
+    const options = Array.from(document.querySelectorAll("#languageSelectControl .language-option"));
+    const currentIndex = options.indexOf(option);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      options[(currentIndex + offset + options.length) % options.length].focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      options[event.key === "Home" ? 0 : options.length - 1].focus();
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectLanguageOption(option);
+    }
+  }
+
   function t(key, params = {}) {
     const table = messages[state.language] || messages["zh-CN"];
     const fallback = messages["zh-CN"][key] || key;
@@ -317,13 +451,58 @@
     });
   }
 
+  function consumeApiTokenFromUrl() {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("token") || "";
+    if (!token) return "";
+    url.searchParams.delete("token");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    return token;
+  }
+
+  async function establishApiSession(token) {
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return readResponse(res);
+  }
+
+  async function requestApiToken() {
+    if (authPromptPromise) return authPromptPromise;
+    authPromptPromise = Promise.resolve().then(async () => {
+      const token = window.prompt(t("auth.tokenPrompt"))?.trim() || "";
+      if (!token) return false;
+      await establishApiSession(token);
+      return true;
+    });
+    try {
+      return await authPromptPromise;
+    } catch (error) {
+      showToast(error.message || t("auth.required"));
+      return false;
+    } finally {
+      authPromptPromise = null;
+    }
+  }
+
+  async function authorizedFetch(url, options = {}) {
+    let res = await fetch(url, options);
+    if (res.status !== 401) return res;
+    if (!(await requestApiToken())) return res;
+    return fetch(url, options);
+  }
+
   async function checkHealth() {
     try {
-      const res = await fetch("/api/health", { cache: "no-store" });
-      if (!res.ok) throw new Error(res.statusText);
+      const res = await authorizedFetch("/api/health", { cache: "no-store" });
+      await readResponse(res);
       setServerState("online");
+      return true;
     } catch (error) {
       setServerState("offline");
+      if (error.message) showToast(error.message);
+      return false;
     }
   }
 
@@ -350,9 +529,10 @@
     $("jobError").textContent = "";
     $("cancelJobButton").hidden = true;
     $("downloadButton").classList.add("disabled");
+    $("downloadButton").classList.remove("ready");
     $("downloadButton").setAttribute("aria-disabled", "true");
     $("downloadButton").href = "#";
-    renderStages("", "unknown");
+    renderStages({ status: "unknown" });
     setInitialJobStatus();
   }
 
@@ -363,7 +543,89 @@
       return;
     }
     $("modelName").value = file.name.replace(/\.[^.]+$/, "");
+    updateYoloVersionFromFileName(file.name);
     updateModelFileHelp();
+  }
+
+  function updateYoloVersionFromFileName(fileName) {
+    const lower = fileName.toLowerCase();
+    if (lower.includes("yolo11")) {
+      setYoloVersion("yolo11", "YOLO11", "Detect");
+    } else if (lower.includes("yolov8") || lower.includes("yolo8")) {
+      setYoloVersion("yolov8", "YOLOv8", "Detect");
+    } else if (lower.includes("yolo26")) {
+      setYoloVersion("yolo26", "YOLO26", "Detect");
+    }
+  }
+
+  function setYoloMenuOpen(open) {
+    $("yoloSelectMenu").hidden = !open;
+    $("yoloSelectButton").setAttribute("aria-expanded", String(open));
+    $("yoloSelect").classList.toggle("open", open);
+  }
+
+  function setYoloVersion(value, label, meta) {
+    $("yoloVersion").value = value;
+    $("yoloSelectLabel").textContent = label || value;
+    $("yoloSelectMeta").textContent = meta || "Detect";
+    document.querySelectorAll("#yoloSelect .select-option").forEach((option) => {
+      const selected = option.dataset.value === value;
+      option.classList.toggle("active", selected);
+      option.setAttribute("aria-selected", String(selected));
+    });
+  }
+
+  function selectYoloOption(option) {
+    setYoloVersion(option.dataset.value, option.dataset.label, option.dataset.meta);
+    setYoloMenuOpen(false);
+    $("yoloSelectButton").focus();
+  }
+
+  function handleYoloButtonKeydown(event) {
+    if (!["ArrowDown", "Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    setYoloMenuOpen(true);
+    const active = document.querySelector("#yoloSelect .select-option.active") || document.querySelector("#yoloSelect .select-option");
+    active?.focus();
+  }
+
+  function handleYoloOptionKeydown(event, option) {
+    const options = Array.from(document.querySelectorAll("#yoloSelect .select-option"));
+    const currentIndex = options.indexOf(option);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      options[(currentIndex + offset + options.length) % options.length].focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      options[event.key === "Home" ? 0 : options.length - 1].focus();
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectYoloOption(option);
+    }
+  }
+
+  function updateTargetDefaults(event) {
+    const input = event.currentTarget;
+    if (!input.checked) return;
+    const size = targetSizeDefaults[input.value];
+    if (!size) return;
+    $("imgszWidth").value = String(size[0]);
+    $("imgszHeight").value = String(size[1]);
+    updateToolchainBadge(input.value);
+    if (!state.currentJob) updateStageLabels(input.value);
+  }
+
+  function updateToolchainBadge(target) {
+    $("toolchainBadge").textContent = target === "maixcam" ? "TPU-MLIR" : "Pulsar2";
+  }
+
+  function updateStageLabels(target) {
+    const workflow = target === "maixcam" ? "maixcam" : "maixcam2";
+    $("stageProgress").setAttribute("aria-label", t(`stage.progress.${workflow}`));
+    for (const stage of stageOrder) {
+      $(`stageLabel${stage[0].toUpperCase()}${stage.slice(1)}`).textContent = t(`stage.${workflow}.${stage}`);
+    }
   }
 
   function updateModelFileHelp() {
@@ -444,6 +706,7 @@
     const data = new FormData($("jobForm"));
     const submitButton = $("submitButton");
     submitButton.disabled = true;
+    showUploadProgress();
     setUploadProgress(0, "upload.uploading", { percent: 0 });
 
     const xhr = new XMLHttpRequest();
@@ -457,21 +720,45 @@
       submitButton.disabled = false;
       if (xhr.status < 200 || xhr.status >= 300) {
         setUploadProgress(0, "upload.failed");
+        hideUploadProgress(1800);
         showToast(readXhrError(xhr));
         return;
       }
       const payload = JSON.parse(xhr.responseText);
       setUploadProgress(100, "upload.done");
+      hideUploadProgress(900);
       showToast(t("toast.jobCreated"));
-      openJob(payload.job_id);
+      openJob(payload.job_id, { quiet: true });
       loadJobs();
     };
     xhr.onerror = () => {
       submitButton.disabled = false;
       setUploadProgress(0, "upload.failed");
+      hideUploadProgress(1800);
       showToast(t("error.network"));
     };
+    xhr.onabort = () => {
+      submitButton.disabled = false;
+      setUploadProgress(0, "upload.failed");
+      hideUploadProgress(1800);
+    };
     xhr.send(data);
+  }
+
+  function showUploadProgress() {
+    clearTimeout(uploadHideTimer);
+    $("uploadProgressBar").closest(".progress").classList.add("active");
+    $("uploadProgressText").classList.add("active");
+  }
+
+  function hideUploadProgress(delay = 0) {
+    clearTimeout(uploadHideTimer);
+    uploadHideTimer = window.setTimeout(() => {
+      $("uploadProgressBar").closest(".progress").classList.remove("active");
+      $("uploadProgressText").classList.remove("active");
+      state.uploadPercent = 0;
+      $("uploadProgressBar").style.width = "0%";
+    }, delay);
   }
 
   function setUploadProgress(percent, key, params = {}) {
@@ -500,9 +787,6 @@
       const payload = await apiGet("/api/jobs");
       state.jobs = payload.jobs || [];
       renderJobs();
-      if (!state.currentJobId && state.jobs.length) {
-        openJob(state.jobs[0].job_id, { quiet: true });
-      }
     } catch (error) {
       showToast(error.message);
     }
@@ -586,14 +870,21 @@
 
   async function openJob(jobId, options = {}) {
     if (!jobId) return;
+    const requestId = ++state.openRequestId;
+    closeLogSocket();
     state.currentJobId = jobId;
+    resetJobDisplay();
     clearLog("log.waiting");
     try {
       const job = await apiGet(`/api/jobs/${encodeURIComponent(jobId)}`);
+      if (requestId !== state.openRequestId || state.currentJobId !== jobId) return;
       renderJob(job);
-      connectLog(jobId);
+      connectLog(jobId, requestId);
       if (!options.quiet) showToast(t("jobs.viewing", { jobId }));
     } catch (error) {
+      if (requestId !== state.openRequestId || state.currentJobId !== jobId) return;
+      state.currentJobId = "";
+      resetJobDisplay();
       showToast(error.message);
     }
   }
@@ -603,8 +894,10 @@
       showToast(t("error.noCurrentJob"));
       return;
     }
+    const jobId = state.currentJobId;
     try {
-      const job = await apiGet(`/api/jobs/${encodeURIComponent(state.currentJobId)}`);
+      const job = await apiGet(`/api/jobs/${encodeURIComponent(jobId)}`);
+      if (state.currentJobId !== jobId) return;
       renderJob(job);
     } catch (error) {
       showToast(error.message);
@@ -613,6 +906,7 @@
 
   function renderJob(job) {
     state.currentJob = job;
+    state.currentJobId = job.job_id || state.currentJobId;
     const status = job.status || "unknown";
     $("jobStatus").className = `status ${status}`;
     $("jobStatus").textContent = statusLabel(status);
@@ -627,54 +921,82 @@
       job.fast ? t("config.fast") : t("config.full"),
     ].filter(Boolean).join(" / ");
 
-    $("jobError").hidden = !job.error;
-    $("jobError").textContent = job.error || "";
+    const jobMessage = job.error || job.cleanup_warning || "";
+    $("jobError").hidden = !jobMessage;
+    $("jobError").textContent = jobMessage;
 
     const active = ["queued", "running"].includes(status);
     $("cancelJobButton").hidden = !active;
     const canDownload = status === "success";
+    const shouldHighlightDownload = canDownload && !state.downloadedJobIds.has(job.job_id);
     $("downloadButton").classList.toggle("disabled", !canDownload);
+    $("downloadButton").classList.toggle("ready", shouldHighlightDownload);
     $("downloadButton").setAttribute("aria-disabled", String(!canDownload));
     $("downloadButton").href = canDownload ? `/api/jobs/${encodeURIComponent(job.job_id)}/download` : "#";
-    renderStages(job.stage, status);
+    renderStages(job);
   }
 
   function statusLabel(status) {
     return t(`status.${status || "unknown"}`);
   }
 
-  function renderStages(stage, status) {
-    const current = status === "success" ? "package" : (stageMap[stage] || (status === "queued" ? "prepare" : ""));
-    const currentIndex = stageOrder.indexOf(current);
+  function renderStages(job) {
+    const status = job.status || "unknown";
+    const stage = job.stage || "";
+    const target = job.target || document.querySelector('input[name="target"]:checked')?.value || "maixcam2";
+    const inputModel = String(job.input_model || "").toLowerCase();
+    const onnxInput = job.input_suffix === ".onnx" || inputModel.endsWith(".onnx");
+    let currentIndex = status === "queued" ? 0 : (stageActiveIndex[stage] ?? (status === "running" ? 0 : -1));
+    if (onnxInput && currentIndex === 1 && stage !== "exporting") currentIndex = 2;
+    updateStageLabels(target);
+
     document.querySelectorAll("#stageProgress [data-stage]").forEach((item) => {
       const index = stageOrder.indexOf(item.dataset.stage);
-      item.classList.toggle("done", status === "success" || (currentIndex > index && currentIndex !== -1));
-      item.classList.toggle("active", ["queued", "running"].includes(status) && index === currentIndex);
-      item.classList.toggle("failed", status === "failed" && index === currentIndex);
-      item.classList.toggle("cancelled", status === "cancelled" && index === currentIndex);
+      const skipped = onnxInput && item.dataset.stage === "export";
+      const finished = status === "success";
+      item.classList.toggle("skipped", skipped);
+      item.classList.toggle("done", !skipped && (finished || (currentIndex > index && currentIndex !== -1)));
+      item.classList.toggle("active", !skipped && ["queued", "running"].includes(status) && index === currentIndex);
+      item.classList.toggle("failed", !skipped && status === "failed" && index === currentIndex);
+      item.classList.toggle("cancelled", !skipped && status === "cancelled" && index === currentIndex);
+      item.title = skipped ? t("stage.skipped") : "";
     });
   }
 
-  function connectLog(jobId) {
-    if (state.socket) {
-      state.socket.close();
-      state.socket = null;
-    }
+  function closeLogSocket() {
+    if (!state.socket) return;
+    state.socket.close();
+    state.socket = null;
+  }
+
+  function connectLog(jobId, requestId) {
+    closeLogSocket();
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${location.host}/api/jobs/${encodeURIComponent(jobId)}/stream`);
     state.socket = socket;
     socket.onmessage = (event) => {
+      if (state.socket !== socket || requestId !== state.openRequestId || state.currentJobId !== jobId) return;
       const payload = JSON.parse(event.data);
       if (payload.type === "job") renderJob(payload.job);
       if (payload.type === "log") appendLog(payload.text);
       if (payload.type === "error") appendLog(`\n[error] ${payload.message}\n`);
       if (payload.type === "done") loadJobs();
     };
-    socket.onerror = () => appendLog(`\n[${t("log.connectError")}]\n`);
+    socket.onerror = () => {
+      if (state.socket === socket && requestId === state.openRequestId && state.currentJobId === jobId) {
+        appendLog(`\n[${t("log.connectError")}]\n`);
+      }
+    };
+    socket.onclose = () => {
+      if (state.socket === socket) state.socket = null;
+    };
   }
 
   function appendLog(text) {
     state.logText += text;
+    if (state.logText.length > maxLogChars) {
+      state.logText = `[earlier browser log output omitted]\n${state.logText.slice(-maxLogChars)}`;
+    }
     $("logView").textContent = state.logText || t(state.logPlaceholderKey);
     if ($("logAutoScroll").checked) {
       $("logView").scrollTop = $("logView").scrollHeight;
@@ -706,12 +1028,23 @@
     URL.revokeObjectURL(url);
   }
 
+  function markResultDownloaded() {
+    if ($("downloadButton").classList.contains("disabled")) return;
+    const jobId = state.currentJob?.job_id || state.currentJobId;
+    if (jobId) state.downloadedJobIds.add(jobId);
+    $("downloadButton").classList.remove("ready");
+  }
+
   async function cancelCurrentJob() {
-    if (!state.currentJobId || !confirm(t("confirm.cancel", { jobId: state.currentJobId }))) return;
+    const jobId = state.currentJob?.job_id;
+    if (!jobId || jobId !== state.currentJobId) {
+      showToast(t("error.noCurrentJob"));
+      return;
+    }
+    if (!confirm(t("confirm.cancel", { jobId }))) return;
     try {
-      const jobId = encodeURIComponent(state.currentJobId);
-      await apiPost(`/api/jobs/${jobId}/cancel`);
-      showToast(t("toast.jobCancelled"));
+      const payload = await apiPost(`/api/jobs/${encodeURIComponent(jobId)}/cancel`);
+      showToast(payload.cleanup_warning || t("toast.jobCancelled"));
       refreshCurrentJob();
       loadJobs();
     } catch (error) {
@@ -725,6 +1058,8 @@
       await apiDelete(`/api/jobs/${encodeURIComponent(jobId)}`);
       showToast(t("toast.jobDeleted"));
       if (state.currentJobId === jobId) {
+        state.openRequestId += 1;
+        closeLogSocket();
         state.currentJobId = "";
         resetJobDisplay();
         clearLog("log.waiting");
@@ -736,17 +1071,17 @@
   }
 
   async function apiGet(url) {
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await authorizedFetch(url, { cache: "no-store" });
     return readResponse(res);
   }
 
   async function apiPost(url) {
-    const res = await fetch(url, { method: "POST" });
+    const res = await authorizedFetch(url, { method: "POST" });
     return readResponse(res);
   }
 
   async function apiDelete(url) {
-    const res = await fetch(url, { method: "DELETE" });
+    const res = await authorizedFetch(url, { method: "DELETE" });
     return readResponse(res);
   }
 
