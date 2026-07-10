@@ -4,8 +4,11 @@ __pycache__/
 .git/
 .venv/
 venv/
+frontend/node_modules/
+downloads/
 
 jobs/
+runtime/
 inputs/
 tmp/
 tmp1/
@@ -22,4 +25,6 @@ out/
 *.cvimodel
 *.mud
 *.tar
+*.tar.gz
+*.tgz
 *.zip

@@ -6,8 +6,10 @@ venv/
 
 # Optional frontend dependency directory for local experiments.
 frontend/node_modules/
+downloads/
 
 jobs/
+runtime/
 inputs/
 tmp/
 tmp1/
@@ -22,4 +24,6 @@ out/
 *.cvimodel
 *.mud
 *.tar
+*.tar.gz
+*.tgz
 *.zip

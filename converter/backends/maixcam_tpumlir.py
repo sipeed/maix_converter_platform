@@ -7,6 +7,7 @@ from pathlib import Path
 
 from converter.backends.maixcam2_pulsar2 import docker_bind_mount
 from converter.backends.process_log import run_and_log
+from converter.common.job_control import docker_container_name
 from converter.yolo.mud import write_maixcam_yolo_mud
 from converter.yolo.node_profiles import YoloProfile
 
@@ -72,6 +73,8 @@ def run_tpumlir_job(
         "run",
         "-i",
         "--rm",
+        "--name",
+        docker_container_name(job_dir),
         "--mount",
         docker_bind_mount(job_dir, "/workspace"),
         "-w",
