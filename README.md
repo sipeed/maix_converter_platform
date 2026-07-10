@@ -21,6 +21,7 @@ Maix Converter Platform 是一个面向 MaixCAM / MaixCAM Pro / MaixCam2 的 YOL
 - YOLOv8
 - 输入模型：`.pt` / `.onnx`
 - 量化数据集：`.zip`
+- 网页界面：中文 / English
 
 ## 1. 克隆项目
 
@@ -38,11 +39,18 @@ cd maix_converter_platform
 
 ## 2. 准备 Python 环境
 
-建议使用 conda 单独创建一个环境：
+如果你使用 conda，建议创建一个专用环境：
 
 ```bash
 conda create -n maix-converter python=3.11
 conda activate maix-converter
+```
+
+如果你更喜欢使用 `venv`，也可以这样创建：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
 安装 Web 服务依赖：
@@ -90,6 +98,61 @@ docker ps
 如果 `docker ps` 没有权限错误，就说明 Docker 基本可用。
 
 Windows 下如果 Docker 转换阶段报错，优先查看任务目录里的 `convert.log`。如果日志显示路径挂载失败，建议把项目放到纯英文路径下，比如 `C:\maix_converter_platform`，避免中文目录、特殊符号或过深路径影响 Docker bind mount。
+
+### 3.1 自动部署转换镜像
+
+项目提供了一个可选的一键部署脚本，用来自动检查、导入、下载、构建和验证 Pulsar2 / TPU-MLIR Docker 镜像：
+
+```bash
+scripts/setup_toolchains.sh
+```
+
+直接运行脚本会进入引导式菜单：
+
+```text
+请选择要部署的转换环境：
+  1) MaixCAM / MaixCAM Pro（TPU-MLIR，生成 .cvimodel）
+  2) MaixCam2（Pulsar2，生成 .axmodel）
+  3) 两者都部署
+```
+
+也可以查看所有参数：
+
+```bash
+scripts/setup_toolchains.sh --help
+```
+
+如果你已经下载好了镜像包，建议优先使用本地文件导入，最稳定：
+
+```bash
+# 只部署 MaixCam2 使用的 Pulsar2
+scripts/setup_toolchains.sh pulsar2 --pulsar2-tar /path/to/ax_pulsar2_6.0.tar.gz
+
+# 只部署 MaixCAM / MaixCAM Pro 使用的 TPU-MLIR
+scripts/setup_toolchains.sh tpumlir --tpuc-dev-tar /path/to/tpuc_dev_v3.4.tar.gz
+```
+
+如果希望脚本自动下载镜像包，需要显式加下载参数。镜像包比较大，下载时间取决于网络环境：
+
+```bash
+# 下载并部署 Pulsar2
+scripts/setup_toolchains.sh pulsar2 --download-pulsar2
+
+# 拉取或下载 sophgo/tpuc_dev，并构建 maixcam-tpumlir:v3.4
+scripts/setup_toolchains.sh tpumlir --download-tpuc-dev
+
+# 两套工具链都部署
+scripts/setup_toolchains.sh all --download-pulsar2 --download-tpuc-dev
+```
+
+脚本默认使用的镜像名和平台转换时一致：
+
+```text
+pulsar2:6.0
+maixcam-tpumlir:v3.4
+```
+
+如果官方下载链接变化，可以用 `--pulsar2-url` 或 `--tpuc-dev-url` 临时覆盖。脚本默认不会自动下载大文件，只有传入 `--download-pulsar2` 或 `--download-tpuc-dev` 时才会联网下载。
 
 ## 4. 安装 Pulsar2 Docker 镜像
 
@@ -343,7 +406,26 @@ cd maix_converter_platform
 conda activate maix-converter
 ```
 
-启动服务：
+如果你使用 `venv`，请确保激活：
+
+```bash
+source .venv/bin/activate
+```
+
+推荐使用项目根目录下的一键启动脚本：
+
+```bash
+./start.sh
+```
+
+该脚本会自动：
+
+- 激活 `.venv`（如果存在）
+- 启动后端 `uvicorn web.app:app`
+
+说明：本仓库提供了已构建的纯静态前端文件到 `web/static`，无需 `npm` 或 `node`，直接运行 `./start.sh` 即可。本地开发（修改 TypeScript 或使用 Vite）仍然可以在 `frontend/` 中进行，但不影响直接运行服务器。
+
+如果你需要手动启动：
 
 ```bash
 uvicorn web.app:app --host 0.0.0.0 --port 8000
@@ -356,6 +438,8 @@ http://127.0.0.1:8000/
 ```
 
 如果你是在另一台电脑访问这台转换服务器，把 `127.0.0.1` 换成服务器 IP。
+
+网页右上角可以切换语言。当前内置中文和 English，选择会保存在浏览器本地，下次打开会自动沿用。
 
 ## 7. 准备上传文件
 
