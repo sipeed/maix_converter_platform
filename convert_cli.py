@@ -96,10 +96,13 @@ def main():
     try:
         dataset_dir = prepare_dataset_path(dataset_path, job_dir)
         metadata["prepared_dataset"] = str(dataset_dir)
+        metadata["stage"] = "prepare_done"
         write_job_json(job_dir, metadata)
 
         suffix = model_path.suffix.lower()
         if suffix == ".pt":
+            metadata["stage"] = "exporting"
+            write_job_json(job_dir, metadata)
             model_path = export_pt_to_onnx(
                 pt_path=model_path,
                 job_dir=job_dir,
@@ -110,10 +113,13 @@ def main():
                 simplify=args.simplify_onnx,
             )
             metadata["exported_onnx"] = str(model_path)
+            metadata["stage"] = "export_done"
             write_job_json(job_dir, metadata)
         elif suffix != ".onnx":
             raise ValueError(f"unsupported model suffix: {model_path.suffix}, expected .pt or .onnx")
 
+        metadata["stage"] = "prebuilding"
+        write_job_json(job_dir, metadata)
         if target == "maixcam2":
             maixcam2_pulsar2.prepare_job(
                 job_dir=job_dir,
@@ -124,6 +130,11 @@ def main():
                 labels=labels,
                 images_num=args.images_num,
             )
+            metadata["stage"] = "prebuild_done"
+            write_job_json(job_dir, metadata)
+
+            metadata["stage"] = "pulsar2"
+            write_job_json(job_dir, metadata)
             maixcam2_pulsar2.run_pulsar2_job(
                 job_dir=job_dir,
                 model_name=model_name,
@@ -131,6 +142,8 @@ def main():
                 images_num=args.images_num,
                 fast=args.fast,
             )
+            metadata["stage"] = "pulsar2_done"
+            write_job_json(job_dir, metadata)
         elif target == "maixcam":
             input_shape = read_onnx_input_hw(model_path, fallback=(height, width))
             metadata["onnx_input_shape"] = [1, 3, input_shape[0], input_shape[1]]
@@ -145,6 +158,11 @@ def main():
                 images_num=args.images_num,
                 input_shape=input_shape,
             )
+            metadata["stage"] = "prebuild_done"
+            write_job_json(job_dir, metadata)
+
+            metadata["stage"] = "tpumlir"
+            write_job_json(job_dir, metadata)
             maixcam_tpumlir.run_tpumlir_job(
                 job_dir=job_dir,
                 model_name=model_name,
@@ -152,13 +170,18 @@ def main():
                 images_num=args.images_num,
                 fast=args.fast,
             )
+            metadata["stage"] = "tpumlir_done"
+            write_job_json(job_dir, metadata)
         else:
             raise ValueError(f"unsupported target: {target}")
 
+        metadata["stage"] = "packaging"
+        write_job_json(job_dir, metadata)
         zip_path = package_outputs(job_dir, model_name, profile=profile, target=target)
         metadata.update(
             {
                 "status": "success",
+                "stage": "done",
                 "completed_at": now_iso(),
                 "zip": str(zip_path),
             }

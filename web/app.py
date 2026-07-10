@@ -35,8 +35,10 @@ MODEL_SUFFIXES = {".pt", ".onnx"}
 DATASET_SUFFIXES = {".zip"}
 TARGETS = {"maixcam2", "maixcam"}
 JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,180}")
-FINISHED_STATUSES = {"success", "failed"}
+FINISHED_STATUSES = {"success", "failed", "cancelled"}
 ACTIVE_STATUSES = {"queued", "running"}
+# 运行中的转换子进程，用于支持任务取消
+job_processes: dict[str, subprocess.Popen] = {}
 JOBS_AUTO_CLEAN = os.getenv("MAIX_JOBS_AUTO_CLEAN", "1").lower() not in {"0", "false", "no", "off"}
 JOBS_KEEP_DAYS = read_env_int("MAIX_JOBS_KEEP_DAYS", 7, min_value=0)
 JOBS_KEEP_COUNT = read_env_int("MAIX_JOBS_KEEP_COUNT", 30, min_value=0)
@@ -148,6 +150,7 @@ def create_job(
     thread = threading.Thread(
         target=run_conversion,
         kwargs={
+            "job_id": job_id,
             "job_dir": job_dir,
             "model_path": model_path,
             "dataset_path": dataset_path,
@@ -248,6 +251,32 @@ def delete_job(job_id: str):
     return {"deleted": True, "job_id": job_id}
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    job_dir = get_job_dir(job_id)
+    try:
+        job = read_job_json(job_dir)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        job = {"status": "unknown"}
+    if job.get("status") not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="can only cancel queued or running jobs")
+
+    process = job_processes.pop(job_id, None)
+    if process is not None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+    job.update({"status": "cancelled", "stage": "cancelled", "completed_at": now_iso()})
+    write_json(job_dir / "job.json", job)
+    return {"cancelled": True, "job_id": job_id}
+
+
 @app.websocket("/api/jobs/{job_id}/stream")
 async def stream_job(websocket: WebSocket, job_id: str):
     await websocket.accept()
@@ -296,7 +325,7 @@ async def stream_job(websocket: WebSocket, job_id: str):
                     if chunk:
                         await websocket.send_json({"type": "log", "name": name, "text": chunk})
 
-            if job.get("status") in {"success", "failed"}:
+            if job.get("status") in FINISHED_STATUSES:
                 await websocket.send_json({"type": "done", "status": job.get("status")})
                 await websocket.close()
                 return
@@ -308,6 +337,7 @@ async def stream_job(websocket: WebSocket, job_id: str):
 
 def run_conversion(
     *,
+    job_id: str,
     job_dir: Path,
     model_path: Path,
     dataset_path: Path,
@@ -347,16 +377,18 @@ def run_conversion(
     with api_log.open("w", encoding="utf-8") as log:
         log.write("+ " + " ".join(cmd) + "\n")
         log.flush()
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
             cwd=BASE_DIR,
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,
-            check=False,
         )
-        if result.returncode != 0:
-            ensure_failed_job(job_dir, f"converter exited with code {result.returncode}")
+        job_processes[job_id] = process
+        returncode = process.wait()
+        job_processes.pop(job_id, None)
+        if returncode != 0:
+            ensure_failed_job(job_dir, f"converter exited with code {returncode}")
 
 
 def save_upload(upload: UploadFile, path: Path) -> None:
@@ -631,7 +663,7 @@ def ensure_failed_job(job_dir: Path, error: str) -> None:
         job = read_job_json(job_dir)
     except HTTPException:
         job = {"job_id": job_dir.name, "created_at": now_iso()}
-    if job.get("status") in {"success", "failed"}:
+    if job.get("status") in FINISHED_STATUSES:
         return
     job.update({"status": "failed", "completed_at": now_iso(), "error": error})
     write_json(job_dir / "job.json", job)
