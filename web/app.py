@@ -1,19 +1,28 @@
 import asyncio
+import hmac
+import ipaddress
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from shutil import copyfileobj, rmtree
+from shutil import rmtree
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from converter.backends.maixcam2_pulsar2 import docker_bind_mount
+from converter.common.job_control import docker_container_name, is_cancel_requested, request_cancel
+from converter.common.names import sanitize_model_name
 from converter.yolo.node_profiles import get_yolo_profile
 
 
@@ -30,13 +39,39 @@ def read_env_int(name: str, default: int, min_value: int = 0) -> int:
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 JOBS_DIR = BASE_DIR / "jobs"
+RUNTIME_DIR = BASE_DIR / "runtime"
+TEMP_DIR = RUNTIME_DIR / "tmp"
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+tempfile.tempdir = str(TEMP_DIR)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MODEL_SUFFIXES = {".pt", ".onnx"}
 DATASET_SUFFIXES = {".zip"}
 TARGETS = {"maixcam2", "maixcam"}
 JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,180}")
-FINISHED_STATUSES = {"success", "failed"}
+FINISHED_STATUSES = {"success", "failed", "cancelled"}
 ACTIVE_STATUSES = {"queued", "running"}
+API_TOKEN = os.getenv("MAIX_API_TOKEN", "").strip()
+AUTH_COOKIE_NAME = "maix_api_token"
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+MAX_MODEL_UPLOAD_BYTES = read_env_int("MAIX_MAX_MODEL_MB", 1024, min_value=1) * 1024 * 1024
+MAX_DATASET_UPLOAD_BYTES = read_env_int("MAIX_MAX_DATASET_MB", 4096, min_value=1) * 1024 * 1024
+MAX_JOB_REQUEST_BYTES = MAX_MODEL_UPLOAD_BYTES + MAX_DATASET_UPLOAD_BYTES + 16 * 1024 * 1024
+MAX_CONCURRENT_JOBS = read_env_int("MAIX_MAX_CONCURRENT_JOBS", 1, min_value=1)
+MAX_LOG_RESPONSE_BYTES = read_env_int("MAIX_MAX_LOG_RESPONSE_MB", 8, min_value=1) * 1024 * 1024
+MAX_API_LOG_BYTES = read_env_int("MAIX_MAX_API_LOG_MB", 64, min_value=1) * 1024 * 1024
+LOG_STREAM_CHUNK_CHARS = 256 * 1024
+
+
+@dataclass
+class JobControl:
+    process: subprocess.Popen | None = None
+    future: Future | None = None
+    cancel_requested: bool = False
+
+
+job_controls: dict[str, JobControl] = {}
+job_controls_lock = threading.Lock()
+job_executor: ThreadPoolExecutor | None = None
 JOBS_AUTO_CLEAN = os.getenv("MAIX_JOBS_AUTO_CLEAN", "1").lower() not in {"0", "false", "no", "off"}
 JOBS_KEEP_DAYS = read_env_int("MAIX_JOBS_KEEP_DAYS", 7, min_value=0)
 JOBS_KEEP_COUNT = read_env_int("MAIX_JOBS_KEEP_COUNT", 30, min_value=0)
@@ -44,13 +79,85 @@ JOBS_CLEAN_INTERVAL_SECONDS = read_env_int("MAIX_JOBS_CLEAN_INTERVAL_SECONDS", 2
 cleanup_stop_event = threading.Event()
 cleanup_thread: threading.Thread | None = None
 
+
+class RequestBodyTooLarge(Exception):
+    pass
+
+
+class BodySizeLimitMiddleware:
+    def __init__(self, app, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http" or scope.get("method") != "POST" or scope.get("path") != "/api/jobs":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        if content_length:
+            try:
+                if int(content_length) > self.max_bytes:
+                    await self.send_too_large(scope, receive, send)
+                    return
+            except ValueError:
+                pass
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise RequestBodyTooLarge
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except RequestBodyTooLarge:
+            await self.send_too_large(scope, receive, send)
+
+    async def send_too_large(self, scope, receive, send) -> None:
+        response = JSONResponse(
+            status_code=413,
+            content={"detail": f"job upload exceeds the {self.max_bytes // (1024 * 1024)} MB request limit"},
+        )
+        await response(scope, receive, send)
+
+
 app = FastAPI(title="Maix Converter Platform")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    if not request.url.path.startswith("/api/") or request.url.path == "/api/session":
+        return await call_next(request)
+    if not API_TOKEN:
+        if is_loopback_client(request.client.host if request.client else ""):
+            return await call_next(request)
+        return JSONResponse(status_code=403, content={"detail": "remote API access requires MAIX_API_TOKEN"})
+    if request_has_valid_token(request):
+        return await call_next(request)
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "API token required"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_JOB_REQUEST_BYTES)
+
+
 @app.on_event("startup")
 def start_job_cleanup() -> None:
-    global cleanup_thread
+    global cleanup_thread, job_executor
+    if job_executor is None:
+        job_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS, thread_name_prefix="conversion")
+    reconcile_interrupted_jobs()
     if not JOBS_AUTO_CLEAN:
         return
     if cleanup_thread and cleanup_thread.is_alive():
@@ -62,7 +169,12 @@ def start_job_cleanup() -> None:
 
 @app.on_event("shutdown")
 def stop_job_cleanup() -> None:
+    global job_executor
     cleanup_stop_event.set()
+    cancel_all_active_jobs("server is shutting down")
+    if job_executor is not None:
+        job_executor.shutdown(wait=True, cancel_futures=True)
+        job_executor = None
 
 
 @app.get("/")
@@ -73,6 +185,25 @@ def index():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/api/session")
+def create_api_session(request: Request, response: Response):
+    if not API_TOKEN:
+        if not is_loopback_client(request.client.host if request.client else ""):
+            raise HTTPException(status_code=403, detail="remote API access requires MAIX_API_TOKEN")
+        return {"authenticated": True, "required": False}
+    token = extract_request_token(request)
+    if not token or not hmac.compare_digest(token, API_TOKEN):
+        raise HTTPException(status_code=401, detail="invalid API token")
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        API_TOKEN,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+    )
+    return {"authenticated": True, "required": True}
 
 
 @app.post("/api/jobs")
@@ -118,8 +249,11 @@ def create_job(
     model_path = upload_dir / f"{clean_model_name}{model_suffix}"
     dataset_path = upload_dir / f"dataset{dataset_suffix}"
     try:
-        save_upload(model, model_path)
-        save_upload(dataset, dataset_path)
+        save_upload(model, model_path, max_bytes=MAX_MODEL_UPLOAD_BYTES, label="model")
+        save_upload(dataset, dataset_path, max_bytes=MAX_DATASET_UPLOAD_BYTES, label="dataset")
+    except HTTPException:
+        rmtree(job_dir, ignore_errors=True)
+        raise
     except Exception as exc:
         rmtree(job_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"failed to save upload: {exc}") from exc
@@ -138,30 +272,34 @@ def create_job(
             "dataset": str(dataset_path),
             "images_num": images_num,
             "imgsz": [imgsz_width, imgsz_height],
+            "requested_imgsz": [imgsz_width, imgsz_height],
             "output_nodes": profile.output_names,
             "fast": fast,
             "docker_image": docker_image,
+            "docker_container": docker_container_name(job_dir),
             "api_log": str(job_dir / "api.log"),
         },
     )
 
-    thread = threading.Thread(
-        target=run_conversion,
-        kwargs={
-            "job_dir": job_dir,
-            "model_path": model_path,
-            "dataset_path": dataset_path,
-            "model_name": clean_model_name,
-            "target": target,
-            "yolo_version": profile.yolo_version,
-            "images_num": images_num,
-            "imgsz_width": imgsz_width,
-            "imgsz_height": imgsz_height,
-            "fast": fast,
-        },
-        daemon=True,
-    )
-    thread.start()
+    control = JobControl()
+    with job_controls_lock:
+        job_controls[job_id] = control
+        executor = ensure_job_executor()
+        future = executor.submit(
+            run_conversion,
+            job_id=job_id,
+            job_dir=job_dir,
+            model_path=model_path,
+            dataset_path=dataset_path,
+            model_name=clean_model_name,
+            target=target,
+            yolo_version=profile.yolo_version,
+            images_num=images_num,
+            imgsz_width=imgsz_width,
+            imgsz_height=imgsz_height,
+            fast=fast,
+        )
+        control.future = future
 
     return {"job_id": job_id, "status": "queued", "job": f"/api/jobs/{job_id}"}
 
@@ -215,7 +353,7 @@ def get_job_log(job_id: str):
     for name in ["api.log", "convert.log"]:
         path = job_dir / name
         if path.exists():
-            chunks.append(f"===== {name} =====\n{path.read_text(encoding='utf-8', errors='replace')}")
+            chunks.append(f"===== {name} =====\n{read_text_tail(path, MAX_LOG_RESPONSE_BYTES)}")
     if not chunks:
         return ""
     return "\n\n".join(chunks)
@@ -248,8 +386,46 @@ def delete_job(job_id: str):
     return {"deleted": True, "job_id": job_id}
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    job_dir = get_job_dir(job_id)
+    job = read_job_json(job_dir)
+    if job.get("status") not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="can only cancel queued or running jobs")
+
+    request_cancel(job_dir)
+    with job_controls_lock:
+        control = job_controls.get(job_id)
+        if control is not None:
+            control.cancel_requested = True
+            process = control.process
+            future = control.future
+        else:
+            process = None
+            future = None
+
+    cancelled_before_start = bool(future and future.cancel())
+    if process is not None:
+        terminate_process_tree(process)
+    cleanup_warning = remove_job_container(job_dir, expect_container=job.get("stage") in {"pulsar2", "tpumlir"})
+
+    job = read_job_json(job_dir)
+    job.update({"status": "cancelled", "completed_at": now_iso()})
+    if cleanup_warning:
+        job["cleanup_warning"] = cleanup_warning
+    write_json(job_dir / "job.json", job)
+    if cancelled_before_start:
+        with job_controls_lock:
+            job_controls.pop(job_id, None)
+    return {"cancelled": True, "job_id": job_id, "cleanup_warning": cleanup_warning}
+
+
 @app.websocket("/api/jobs/{job_id}/stream")
 async def stream_job(websocket: WebSocket, job_id: str):
+    remote_without_token = not API_TOKEN and not is_loopback_client(websocket.client.host if websocket.client else "")
+    if remote_without_token or (API_TOKEN and not websocket_has_valid_token(websocket)):
+        await websocket.close(code=4401)
+        return
     await websocket.accept()
     try:
         job_dir = get_job_dir(job_id)
@@ -291,12 +467,12 @@ async def stream_job(websocket: WebSocket, job_id: str):
                 if size > offsets[name]:
                     with path.open("r", encoding="utf-8", errors="replace") as f:
                         f.seek(offsets[name])
-                        chunk = f.read()
+                        chunk = f.read(LOG_STREAM_CHUNK_CHARS)
                         offsets[name] = f.tell()
                     if chunk:
                         await websocket.send_json({"type": "log", "name": name, "text": chunk})
 
-            if job.get("status") in {"success", "failed"}:
+            if job.get("status") in FINISHED_STATUSES:
                 await websocket.send_json({"type": "done", "status": job.get("status")})
                 await websocket.close()
                 return
@@ -308,6 +484,7 @@ async def stream_job(websocket: WebSocket, job_id: str):
 
 def run_conversion(
     *,
+    job_id: str,
     job_dir: Path,
     model_path: Path,
     dataset_path: Path,
@@ -347,21 +524,330 @@ def run_conversion(
     with api_log.open("w", encoding="utf-8") as log:
         log.write("+ " + " ".join(cmd) + "\n")
         log.flush()
-        result = subprocess.run(
+        try:
+            with job_controls_lock:
+                control = job_controls.setdefault(job_id, JobControl())
+                if control.cancel_requested or is_cancel_requested(job_dir):
+                    return
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=BASE_DIR,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    env={
+                        **os.environ,
+                        "PYTHONIOENCODING": "utf-8",
+                        "PYTHONUTF8": "1",
+                        "PYTHONUNBUFFERED": "1",
+                    },
+                    **process_group_options(),
+                )
+                control.process = process
+                (job_dir / "runner.pid").write_text(str(process.pid), encoding="ascii")
+
+            capture_process_output(process, log)
+            returncode = process.wait()
+            if returncode != 0 and not is_cancel_requested(job_dir):
+                ensure_failed_job(job_dir, f"converter exited with code {returncode}")
+        except Exception as exc:
+            if not is_cancel_requested(job_dir):
+                ensure_failed_job(job_dir, f"failed to start or monitor converter: {type(exc).__name__}: {exc}")
+        finally:
+            (job_dir / "runner.pid").unlink(missing_ok=True)
+            with job_controls_lock:
+                job_controls.pop(job_id, None)
+
+
+def process_group_options() -> dict:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def capture_process_output(process: subprocess.Popen, log) -> None:
+    if process.stdout is None:
+        return
+    written_bytes = 0
+    truncated = False
+    while True:
+        chunk = os.read(process.stdout.fileno(), 64 * 1024)
+        if not chunk:
+            break
+        if truncated:
+            continue
+        remaining = MAX_API_LOG_BYTES - written_bytes
+        if len(chunk) <= remaining:
+            log.write(chunk.decode("utf-8", errors="replace"))
+            written_bytes += len(chunk)
+        else:
+            if remaining > 0:
+                log.write(chunk[:remaining].decode("utf-8", errors="replace"))
+            log.write("\n[api log truncated]\n")
+            truncated = True
+        log.flush()
+
+
+def terminate_process_tree(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+
+    if os.name == "nt":
+        run_taskkill(process.pid, force=False)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
+    try:
+        process.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    if os.name == "nt":
+        run_taskkill(process.pid, force=True)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        return
+
+
+def run_taskkill(pid: int, *, force: bool) -> None:
+    cmd = ["taskkill", "/PID", str(pid), "/T"]
+    if force:
+        cmd.append("/F")
+    try:
+        subprocess.run(
             cmd,
-            cwd=BASE_DIR,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
             check=False,
         )
-        if result.returncode != 0:
-            ensure_failed_job(job_dir, f"converter exited with code {result.returncode}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
 
-def save_upload(upload: UploadFile, path: Path) -> None:
+def remove_job_container(job_dir: Path, *, expect_container: bool = False) -> str:
+    container_name = docker_container_name(job_dir)
+    try:
+        result = subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            cwd=BASE_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        return "docker command not found while cleaning up the task container" if expect_container else ""
+    except subprocess.TimeoutExpired:
+        return f"timed out while removing Docker container {container_name}" if expect_container else ""
+
+    output = result.stdout.strip()
+    if result.returncode == 0 or "No such container" in output:
+        return ""
+    if not expect_container:
+        return ""
+    return f"failed to remove Docker container {container_name}: {output or f'exit code {result.returncode}'}"
+
+
+def save_upload(upload: UploadFile, path: Path, *, max_bytes: int, label: str) -> None:
+    total = 0
     with path.open("wb") as f:
-        copyfileobj(upload.file, f)
+        while True:
+            chunk = upload.file.read(UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"{label} upload exceeds the {max_bytes // (1024 * 1024)} MB limit",
+                )
+            f.write(chunk)
+
+
+def read_text_tail(path: Path, max_bytes: int) -> str:
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        if size > max_bytes:
+            f.seek(-max_bytes, os.SEEK_END)
+            f.readline()
+            prefix = "[earlier log output omitted]\n"
+        else:
+            prefix = ""
+        return prefix + f.read().decode("utf-8", errors="replace")
+
+
+def ensure_job_executor() -> ThreadPoolExecutor:
+    global job_executor
+    if job_executor is None:
+        job_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS, thread_name_prefix="conversion")
+    return job_executor
+
+
+def extract_request_token(request: Request) -> str:
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return request.headers.get("x-maix-token", "").strip()
+
+
+def request_has_valid_token(request: Request) -> bool:
+    token = request.cookies.get(AUTH_COOKIE_NAME, "") or extract_request_token(request)
+    return bool(token) and hmac.compare_digest(token, API_TOKEN)
+
+
+def is_loopback_client(host: str) -> bool:
+    if host in {"localhost", "testclient"}:
+        return True
+    try:
+        return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def websocket_has_valid_token(websocket: WebSocket) -> bool:
+    token = websocket.cookies.get(AUTH_COOKIE_NAME, "")
+    if not token:
+        authorization = websocket.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+    return bool(token) and hmac.compare_digest(token, API_TOKEN)
+
+
+def cancel_all_active_jobs(reason: str) -> None:
+    with job_controls_lock:
+        controls = list(job_controls.items())
+
+    for job_id, control in controls:
+        job_dir = JOBS_DIR / job_id
+        try:
+            job = read_job_json(job_dir) if job_dir.is_dir() else {}
+        except HTTPException:
+            job = {}
+        if job_dir.is_dir():
+            request_cancel(job_dir)
+        control.cancel_requested = True
+        if control.future is not None:
+            control.future.cancel()
+        if control.process is not None:
+            terminate_process_tree(control.process)
+        cleanup_warning = (
+            remove_job_container(job_dir, expect_container=job.get("stage") in {"pulsar2", "tpumlir"})
+            if job_dir.is_dir()
+            else ""
+        )
+        mark_interrupted_job(job_dir, reason, cleanup_warning=cleanup_warning)
+
+    with job_controls_lock:
+        job_controls.clear()
+
+
+def reconcile_interrupted_jobs() -> None:
+    for job_dir in iter_job_dirs():
+        try:
+            job = read_job_json(job_dir)
+        except HTTPException:
+            continue
+        if job.get("status") not in ACTIVE_STATUSES:
+            continue
+        request_cancel(job_dir)
+        terminate_recorded_process(job_dir, job)
+        (job_dir / "runner.pid").unlink(missing_ok=True)
+        cleanup_warning = remove_job_container(
+            job_dir,
+            expect_container=job.get("stage") in {"pulsar2", "tpumlir"},
+        )
+        mark_interrupted_job(job_dir, "server restarted while the task was active", cleanup_warning=cleanup_warning)
+
+
+def terminate_recorded_process(job_dir: Path, job: dict) -> None:
+    try:
+        pid_text = (job_dir / "runner.pid").read_text(encoding="ascii").strip()
+    except OSError:
+        pid_text = str(job.get("runner_pid", 0))
+    try:
+        pid = int(pid_text)
+    except (TypeError, ValueError):
+        return
+    if pid <= 1:
+        return
+
+    cmdline = read_process_command_line(pid)
+    if not cmdline:
+        return
+    if "convert_cli.py" not in cmdline.lower() or str(job_dir).lower() not in cmdline.lower():
+        return
+
+    if os.name == "nt":
+        run_taskkill(pid, force=True)
+        return
+
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    for _ in range(20):
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def read_process_command_line(pid: int) -> str:
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-Command",
+                    f"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    cmdline_path = Path(f"/proc/{pid}/cmdline")
+    try:
+        return cmdline_path.read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def mark_interrupted_job(job_dir: Path, reason: str, *, cleanup_warning: str = "") -> None:
+    if not job_dir.is_dir():
+        return
+    try:
+        job = read_job_json(job_dir)
+    except HTTPException:
+        return
+    if job.get("status") not in ACTIVE_STATUSES:
+        return
+    job.update({"status": "cancelled", "completed_at": now_iso(), "error": reason})
+    if cleanup_warning:
+        job["cleanup_warning"] = cleanup_warning
+    write_json(job_dir / "job.json", job)
 
 
 def job_cleanup_loop() -> None:
@@ -584,7 +1070,7 @@ def get_job_dir(job_id: str) -> Path:
 
 
 def write_json(path: Path, data: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -609,9 +1095,7 @@ def now_iso() -> str:
 
 
 def slugify(value: str) -> str:
-    value = value.strip()
-    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
-    return value.strip("._-")[:80]
+    return sanitize_model_name(value)
 
 
 def validate_imgsz(width: int, height: int) -> None:
@@ -631,7 +1115,7 @@ def ensure_failed_job(job_dir: Path, error: str) -> None:
         job = read_job_json(job_dir)
     except HTTPException:
         job = {"job_id": job_dir.name, "created_at": now_iso()}
-    if job.get("status") in {"success", "failed"}:
+    if job.get("status") in FINISHED_STATUSES:
         return
     job.update({"status": "failed", "completed_at": now_iso(), "error": error})
     write_json(job_dir / "job.json", job)

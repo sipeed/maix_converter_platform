@@ -161,8 +161,10 @@ pip install -r requirements-web.txt
 启动服务：
 
 ```bash
-uvicorn web.app:app --host 0.0.0.0 --port 8000
+python -m uvicorn web.app:app --host 127.0.0.1 --port 8000
 ```
+
+该命令可用于 Linux、macOS 和 Windows。需要局域网访问时，请按照 README 设置 `HOST=0.0.0.0` 并使用访问令牌。
 
 浏览器打开：
 

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from converter.backends.process_log import run_and_log
+from converter.common.job_control import docker_container_name
 from converter.yolo.mud import write_maixcam2_yolo_mud
 from converter.yolo.node_profiles import YoloProfile
 
@@ -72,6 +73,8 @@ def run_pulsar2_job(
         "run",
         "-i",
         "--rm",
+        "--name",
+        docker_container_name(job_dir),
         "--mount",
         docker_bind_mount(job_dir, "/data"),
         docker_image,

@@ -8,6 +8,17 @@ ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 BRACKET_PROGRESS_RE = re.compile(r"^\[[#\s]+\]\s*\d+%$")
 
 
+def read_log_limit_bytes() -> int:
+    try:
+        megabytes = int(os.getenv("MAIX_MAX_CONVERSION_LOG_MB", "64"))
+    except ValueError:
+        megabytes = 64
+    return max(1, megabytes) * 1024 * 1024
+
+
+MAX_CONVERSION_LOG_BYTES = read_log_limit_bytes()
+
+
 class TerminalLogFilter:
     def __init__(self) -> None:
         self.pending = ""
@@ -54,9 +65,27 @@ class TerminalLogFilter:
 def run_and_log(cmd: list[str], log_path: Path, stdin_text: str | None = None) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log:
-        log.write("+ " + " ".join(cmd) + "\n")
+        written_bytes = 0
+        truncated = False
+
+        def write_log(text: str) -> None:
+            nonlocal written_bytes, truncated
+            if truncated:
+                return
+            encoded = text.encode("utf-8")
+            remaining = MAX_CONVERSION_LOG_BYTES - written_bytes
+            if len(encoded) <= remaining:
+                log.write(text)
+                written_bytes += len(encoded)
+                return
+            if remaining > 0:
+                log.write(encoded[:remaining].decode("utf-8", errors="ignore"))
+            log.write("\n[conversion log truncated]\n")
+            truncated = True
+
+        write_log("+ " + " ".join(cmd) + "\n")
         if stdin_text:
-            log.write(stdin_text)
+            write_log(stdin_text)
         log.flush()
         process = subprocess.Popen(
             cmd,
@@ -77,13 +106,13 @@ def run_and_log(cmd: list[str], log_path: Path, stdin_text: str | None = None) -
             text = log_filter.feed(chunk.decode("utf-8", errors="replace"))
             if text:
                 print(text, end="")
-                log.write(text)
+                write_log(text)
                 log.flush()
 
         tail = log_filter.flush()
         if tail:
             print(tail, end="")
-            log.write(tail)
+            write_log(tail)
             log.flush()
 
         code = process.wait()

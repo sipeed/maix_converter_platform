@@ -21,6 +21,7 @@ Maix Converter Platform 是一个面向 MaixCAM / MaixCAM Pro / MaixCam2 的 YOL
 - YOLOv8
 - 输入模型：`.pt` / `.onnx`
 - 量化数据集：`.zip`
+- 网页界面：中文
 
 ## 1. 克隆项目
 
@@ -38,11 +39,34 @@ cd maix_converter_platform
 
 ## 2. 准备 Python 环境
 
-建议使用 conda 单独创建一个环境：
+如果你使用 conda，建议创建一个专用环境：
 
 ```bash
 conda create -n maix-converter python=3.11
 conda activate maix-converter
+```
+
+如果你更喜欢使用 `venv`，也可以这样创建：
+
+Linux / macOS：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Windows PowerShell：
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Windows CMD：
+
+```bat
+py -3.11 -m venv .venv
+.venv\Scripts\activate.bat
 ```
 
 安装 Web 服务依赖：
@@ -51,13 +75,13 @@ conda activate maix-converter
 pip install -r requirements-web.txt
 ```
 
-如果你需要上传 `.pt` 模型，让平台自动导出 ONNX，还需要安装 Ultralytics：
+安装模型解析和 `.pt -> .onnx` 转换依赖：
 
 ```bash
-pip install ultralytics onnx
+pip install -r requirements-converter.txt
 ```
 
-如果你只上传已经导出的 `.onnx`，可以不安装 `ultralytics`。但如果是自训练模型，建议安装 `onnx`，这样平台可以从 ONNX metadata 里读取类别名并写入 `.mud`。
+依赖文件固定了已经验证的 Ultralytics 和 ONNX 版本。`.pt` 默认使用受限的安全加载模式，并要求 PyTorch 2.5 或更新版本。仍然建议只上传来源可信的模型；如果只使用 `.onnx`，可以只安装 `requirements-converter.txt` 中的 `onnx`。只有在确认模型绝对可信且必须兼容旧格式时，才可以临时设置 `MAIX_ALLOW_UNSAFE_PT=1`，该选项会恢复不受限的 PyTorch 反序列化。
 
 ## 3. 安装 Docker
 
@@ -89,7 +113,9 @@ docker ps
 
 如果 `docker ps` 没有权限错误，就说明 Docker 基本可用。
 
-Windows 下如果 Docker 转换阶段报错，优先查看任务目录里的 `convert.log`。如果日志显示路径挂载失败，建议把项目放到纯英文路径下，比如 `C:\maix_converter_platform`，避免中文目录、特殊符号或过深路径影响 Docker bind mount。
+Windows 下如果 Docker 转换阶段报错，优先查看任务目录里的 `convert.log`。如果日志显示路径挂载失败，建议把项目放到你自己的工作区目录中，并使用纯英文短路径，避免中文目录、特殊符号或过深路径影响 Docker bind mount。
+
+接下来请根据目标设备，按照第 4 节或第 5 节手动部署对应的转换镜像。手动部署过程更容易确认镜像来源、版本和每一步执行结果，因此是本文推荐的主要方式。
 
 ## 4. 安装 Pulsar2 Docker 镜像
 
@@ -159,7 +185,7 @@ docker tag pulsar2:3.3 pulsar2:6.0
 再次确认：
 
 ```bash
-docker images | grep pulsar2
+docker images --filter "reference=pulsar2:*"
 ```
 
 最后可以简单验证容器里的 Pulsar2 是否可用：
@@ -178,7 +204,7 @@ commit: 48520c11
 也可以查看 Pulsar2 支持的子命令：
 
 ```bash
-docker run --rm pulsar2:6.0 -c "pulsar2 --help | head -20"
+docker run --rm pulsar2:6.0 -c "pulsar2 --help"
 ```
 
 正常会看到类似：
@@ -221,7 +247,7 @@ docker pull sophgo/tpuc_dev:latest
 如果能成功，查看镜像：
 
 ```bash
-docker images | grep sophgo/tpuc_dev
+docker images --filter "reference=sophgo/tpuc_dev:*"
 ```
 
 正常会看到类似：
@@ -232,24 +258,26 @@ sophgo/tpuc_dev   latest   ...
 
 如果 `docker pull` 下载失败，可以参考 [MaixPy MaixCAM 模型转换文档](https://wiki.sipeed.com/maixpy/doc/zh/ai_model_converter/maixcam.html) 和 [TPU-MLIR 官方 README](https://github.com/sophgo/tpu-mlir/blob/master/README_cn.md) 的方式，下载镜像包后导入。
 
-TPU-MLIR 官方 README 当前给出的 v3.4 镜像包示例：
+TPU-MLIR 官方 README 当前给出的 v3.4 镜像包地址如下。可以直接使用浏览器下载，或者使用对应平台的命令。
+
+Linux / macOS / WSL：
 
 ```bash
-wget https://sophon-assets.sophon.cn/sophon-prod-s3/drive/25/04/15/16/tpuc_dev_v3.4.tar.gz
+curl -L -o tpuc_dev_v3.4.tar.gz https://sophon-assets.sophon.cn/sophon-prod-s3/drive/25/04/15/16/tpuc_dev_v3.4.tar.gz
 docker load -i tpuc_dev_v3.4.tar.gz
 ```
 
-MaixPy 文档里也给过类似写法，只是示例链接可能是旧版本：
+Windows PowerShell / CMD：
 
-```bash
-wget https://sophon-file.sophon.cn/sophon-prod-s3/drive/24/06/14/12/sophgo-tpuc_dev-v3.2_191a433358ad.tar.gz
-docker load -i sophgo-tpuc_dev-v3.2_191a433358ad.tar.gz
+```powershell
+curl.exe -L -o tpuc_dev_v3.4.tar.gz https://sophon-assets.sophon.cn/sophon-prod-s3/drive/25/04/15/16/tpuc_dev_v3.4.tar.gz
+docker load -i tpuc_dev_v3.4.tar.gz
 ```
 
 本项目建议优先使用 v3.4。导入完成后再次检查：
 
 ```bash
-docker images | grep sophgo/tpuc_dev
+docker images --filter "reference=sophgo/tpuc_dev:*"
 ```
 
 如果看到 `sophgo/tpuc_dev`，就说明基础镜像已经有了。镜像 tag 可能是 `latest`，也可能是 `v3.4`，下一步构建时按实际情况选择命令。
@@ -271,17 +299,13 @@ docker build -f docker/maixcam-tpumlir.Dockerfile -t maixcam-tpumlir:v3.4 .
 如果你的基础镜像只有 `sophgo/tpuc_dev:latest`，执行：
 
 ```bash
-docker build \
-  --build-arg TPUC_DEV_IMAGE=sophgo/tpuc_dev:latest \
-  -f docker/maixcam-tpumlir.Dockerfile \
-  -t maixcam-tpumlir:v3.4 \
-  .
+docker build --build-arg TPUC_DEV_IMAGE=sophgo/tpuc_dev:latest -f docker/maixcam-tpumlir.Dockerfile -t maixcam-tpumlir:v3.4 .
 ```
 
 构建完成后检查：
 
 ```bash
-docker images | grep maixcam-tpumlir
+docker images --filter "reference=maixcam-tpumlir:*"
 ```
 
 正常会看到类似：
@@ -320,7 +344,7 @@ docker run --rm maixcam-tpumlir:v3.4 model_deploy.py --help
 pull access denied for sophgo/tpuc_dev
 ```
 
-说明本地没有 `sophgo/tpuc_dev:v3.4`，而 Docker 也没能从网络拉到这个 tag。先用 `docker images | grep sophgo/tpuc_dev` 看你本地实际的 tag。如果只有 `latest`，使用上面带 `--build-arg TPUC_DEV_IMAGE=sophgo/tpuc_dev:latest` 的构建命令。
+说明本地没有 `sophgo/tpuc_dev:v3.4`，而 Docker 也没能从网络拉到这个 tag。先用 `docker images --filter "reference=sophgo/tpuc_dev:*"` 看你本地实际的 tag。如果只有 `latest`，使用上面带 `--build-arg TPUC_DEV_IMAGE=sophgo/tpuc_dev:latest` 的构建命令。
 
 如果验证时报：
 
@@ -330,34 +354,164 @@ model_transform.py: command not found
 
 说明你运行的不是 `maixcam-tpumlir:v3.4`，或者派生镜像没有构建成功。重新执行 `docker build ... -t maixcam-tpumlir:v3.4 .` 后再验证。
 
-如果下载镜像包很慢，建议先手动用浏览器或 `wget` 下载到本机，再执行 `docker load -i <镜像包文件名>`。`docker load` 成功后，原始 `.tar.gz` 镜像包可以删除。
+如果下载镜像包很慢，建议先手动用浏览器下载到本机，再执行 `docker load -i <镜像包文件名>`。`docker load` 成功后，原始 `.tar.gz` 镜像包可以删除。
 
 之后平台会默认使用 `maixcam-tpumlir:v3.4` 进行 MaixCAM / MaixCAM Pro 转换，不需要再手动进入 Docker 安装 `tpu_mlir`。
 
-## 6. 启动网页端
+## 6. 可选：使用脚本辅助部署转换镜像
 
-进入项目目录并激活 Python 环境：
+建议优先按照第 4 节和第 5 节手动部署镜像。只有在熟悉 Docker、需要重复部署环境或排查镜像名称时，再考虑使用项目提供的辅助脚本：
 
-```bash
-cd maix_converter_platform
-conda activate maix-converter
-```
-
-启动服务：
+该脚本使用 Bash，适用于 Linux、macOS 和 WSL。原生 Windows PowerShell / CMD 用户建议继续使用前面的手动部署流程，不需要运行这个脚本。
 
 ```bash
-uvicorn web.app:app --host 0.0.0.0 --port 8000
+scripts/setup_toolchains.sh
 ```
 
-浏览器打开：
+脚本可以检查、导入、下载、构建和验证 Pulsar2 / TPU-MLIR 镜像。查看具体参数：
+
+```bash
+scripts/setup_toolchains.sh --help
+```
+
+如果已经准备好本地镜像包，可以让脚本辅助导入：
+
+```bash
+scripts/setup_toolchains.sh pulsar2 --pulsar2-tar /path/to/ax_pulsar2_6.0.tar.gz
+scripts/setup_toolchains.sh tpumlir --tpuc-dev-tar /path/to/tpuc_dev_v3.4.tar.gz
+```
+
+已经按照前面的手动流程成功部署并验证镜像后，不需要再次运行该脚本。自动下载依赖外部链接和网络环境，稳定性通常不如手动下载并执行 `docker load`，因此不作为默认推荐方式。
+
+## 7. 启动网页端
+
+进入项目目录并激活前面准备好的 conda 或 venv 环境。下面这条命令在 Linux、macOS 和 Windows 中都可以使用，也是最直接的启动方式：
+
+```bash
+python -m uvicorn web.app:app --host 127.0.0.1 --port 8000
+```
+
+启动后浏览器打开：
 
 ```text
 http://127.0.0.1:8000/
 ```
 
-如果你是在另一台电脑访问这台转换服务器，把 `127.0.0.1` 换成服务器 IP。
+项目也提供了对应平台的便捷启动脚本。它们会优先使用项目目录里的 `.venv` 或 `venv`，否则使用当前环境中的 Python。
 
-## 7. 准备上传文件
+Linux / macOS / WSL：
+
+```bash
+./start.sh
+```
+
+Windows CMD：
+
+```bat
+start.bat
+```
+
+Windows PowerShell：
+
+```powershell
+.\start.ps1
+```
+
+如果 PowerShell 执行策略阻止运行 `.ps1`，直接使用 `start.bat` 即可；`start.bat` 会以仅对本次启动生效的方式调用 PowerShell，不修改系统执行策略。
+
+### 局域网访问
+
+默认只监听本机。如果需要让局域网内的其他电脑访问，可以设置 `HOST=0.0.0.0` 后运行对应平台的启动脚本。
+
+Linux / macOS / WSL：
+
+```bash
+HOST=0.0.0.0 ./start.sh
+```
+
+Windows CMD：
+
+```bat
+set HOST=0.0.0.0
+start.bat
+```
+
+Windows PowerShell：
+
+```powershell
+$env:HOST = "0.0.0.0"
+.\start.ps1
+```
+
+监听非本机地址时，启动脚本会自动生成访问令牌，并打印带 `?token=...` 的首次访问地址。也可以提前设置 `MAIX_API_TOKEN` 使用固定令牌。API 客户端可以使用 `Authorization: Bearer <token>`。局域网环境仍建议通过可信网络或 HTTPS 反向代理使用。
+
+Windows 原生环境需要安装 Docker Desktop，并保持 Docker Desktop 正在运行。项目目录需要位于 Docker Desktop 可以访问的磁盘中，建议放在你自己的工作区目录，并使用纯英文短路径。
+
+### 运行配置
+
+普通个人使用或单机部署时，**不需要设置下面的环境变量**，直接使用启动脚本即可。默认情况下同时只执行一个转换任务，其余任务会自动排队。模型转换会占用较多内存，因此没有确认机器资源充足前，建议保持 `MAIX_MAX_CONCURRENT_JOBS=1`。
+
+只有遇到以下情况时才需要调整：
+
+- 上传的正常模型或数据集超过默认大小限制。
+- 可信数据集解压后超过默认限制。
+- 服务器有充足的 CPU、内存和 Docker 资源，需要并行执行多个任务。
+- 排查问题时确实需要保留或查看更多日志。
+
+可用配置如下。容量相关变量的单位都是 MB：
+
+| 环境变量 | 默认值 | 作用 | 什么时候调整 |
+|----------|--------|------|--------------|
+| `MAIX_MAX_CONCURRENT_JOBS` | `1` | 同时执行的转换任务数，超出的任务进入队列 | 仅在内存和 CPU 充足时调大；每增加一个并发任务都会额外启动一套转换流程和容器 |
+| `MAIX_MAX_MODEL_MB` | `1024` | 单个模型上传大小上限 | 合法的 `.pt` 或 `.onnx` 文件超过 1 GB 时调大 |
+| `MAIX_MAX_DATASET_MB` | `4096` | 单个量化数据集 zip 上传大小上限 | 合法数据集压缩包超过 4 GB 时调大 |
+| `MAIX_MAX_ZIP_ENTRIES` | `20000` | zip 内文件和目录的数量上限 | 可信数据集确实包含超过 20000 个条目时调大 |
+| `MAIX_MAX_ZIP_UNCOMPRESSED_MB` | `12288` | zip 解压后全部内容的总大小上限 | 可信数据集解压后超过 12 GB 时调大 |
+| `MAIX_MAX_ZIP_FILE_MB` | `1024` | zip 内单个文件的解压大小上限 | zip 内确实存在超过 1 GB 的合法文件时调大，普通图片数据集一般不需要修改 |
+| `MAIX_MAX_ZIP_COMPRESSION_RATIO` | `200` | zip 内单个文件允许的最大压缩比 | 可信压缩包被误判为异常高压缩比时再调大 |
+| `MAIX_MAX_API_LOG_MB` | `64` | 网页服务侧单个任务日志的保存上限 | 调试时任务日志被截断，并且磁盘空间充足时调大 |
+| `MAIX_MAX_CONVERSION_LOG_MB` | `64` | 转换工具单个步骤日志的保存上限 | 转换日志被截断且需要完整输出排查问题时调大 |
+| `MAIX_MAX_LOG_RESPONSE_MB` | `8` | 网页一次读取的日志内容上限 | 网页中需要查看更长日志时调大；数值过大会增加网络传输和浏览器内存占用 |
+
+zip 相关限制用于防止异常压缩包耗尽磁盘或内存。除非数据集来源可信并且确认机器资源足够，否则不建议提高这些限制。
+
+环境变量必须在启动网页服务前设置。下面以“允许两个任务并发，并将数据集上传上限调整为 8 GB”为例。
+
+Linux / macOS / WSL，仅对本次启动生效：
+
+```bash
+MAIX_MAX_CONCURRENT_JOBS=2 MAIX_MAX_DATASET_MB=8192 ./start.sh
+```
+
+也可以先在当前终端设置，再启动：
+
+```bash
+export MAIX_MAX_CONCURRENT_JOBS=2
+export MAIX_MAX_DATASET_MB=8192
+./start.sh
+```
+
+Windows CMD，仅对当前 CMD 窗口生效：
+
+```bat
+set MAIX_MAX_CONCURRENT_JOBS=2
+set MAIX_MAX_DATASET_MB=8192
+start.bat
+```
+
+Windows PowerShell，仅对当前 PowerShell 窗口生效：
+
+```powershell
+$env:MAIX_MAX_CONCURRENT_JOBS = "2"
+$env:MAIX_MAX_DATASET_MB = "8192"
+.\start.ps1
+```
+
+关闭对应终端后，这些临时设置会失效，下次启动会恢复默认值。修改配置后如果服务已经在运行，需要先停止服务，再从设置了环境变量的终端重新启动。
+
+网页界面使用普通 HTML / CSS / JavaScript 静态文件，不需要 npm 或前端构建步骤。
+
+## 8. 准备上传文件
 
 模型文件支持：
 
@@ -393,7 +547,7 @@ dataset.zip
 
 建议选择和实际使用场景接近的图片。调试时可以先用 50 到 100 张，正式转换可以适当增加。
 
-## 8. 网页选项说明
+## 9. 网页选项说明
 
 ### 模型文件
 
@@ -472,7 +626,7 @@ yolo11n_vnpu.axmodel
 
 正式部署到 MaixCam2 前，建议关闭快速模式重新转换一次。
 
-## 9. 开始转换和下载结果
+## 10. 开始转换和下载结果
 
 填写完选项后，点击“开始转换”。
 
@@ -525,7 +679,20 @@ while not app.need_exit():
 
 如果你转换的是其他 YOLO 版本，代码里的模型类需要换成 MaixPy 对应接口。
 
-## 10. 任务目录和自动清理
+## 11. 任务目录和自动清理
+
+程序自身产生的运行文件默认都保存在项目目录中：
+
+```text
+maix_converter_platform/
+  jobs/       # 上传文件、转换中间文件、日志和结果
+  runtime/    # Web 上传临时文件
+  downloads/  # 可选辅助脚本下载的镜像包
+```
+
+Ultralytics、Torch、Matplotlib 等转换阶段可能产生的配置和缓存会写入对应任务的 `jobs/<job_id>/runtime/`，不会主动在 Windows 的磁盘根目录或用户配置目录创建项目运行文件。
+
+Docker 镜像和 Docker Desktop 自身的数据仍由 Docker 管理，保存位置取决于 Docker Desktop 配置，不属于项目创建的运行文件。
 
 每次转换都会生成一个任务目录：
 
