@@ -11,7 +11,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+if os.name == "nt":
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from converter.backends import maixcam2_pulsar2, maixcam_tpumlir
 from converter.common.job_control import docker_container_name, is_cancel_requested
