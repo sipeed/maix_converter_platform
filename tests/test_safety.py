@@ -126,6 +126,32 @@ class SafetyTests(unittest.TestCase):
             finally:
                 tempfile.tempdir = previous_tempdir
 
+    def test_job_metadata_write_retries_when_file_is_briefly_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            original_replace = os.replace
+            attempts = 0
+
+            def briefly_locked_replace(source, destination):
+                nonlocal attempts
+                attempts += 1
+                if attempts < 3:
+                    raise PermissionError(5, "Access is denied", str(destination))
+                return original_replace(source, destination)
+
+            with (
+                patch.object(convert_cli.os, "replace", side_effect=briefly_locked_replace),
+                patch.object(convert_cli.time, "sleep") as sleep,
+            ):
+                convert_cli.write_job_json(job_dir, {"status": "success"})
+
+            self.assertEqual(attempts, 3)
+            self.assertEqual(sleep.call_count, 2)
+            self.assertEqual(
+                json.loads((job_dir / "job.json").read_text(encoding="utf-8")),
+                {"status": "success"},
+            )
+
     def test_web_runtime_directories_use_project_root(self) -> None:
         self.assertEqual(web_app.JOBS_DIR, web_app.BASE_DIR / "jobs")
         self.assertIn(web_app.BASE_DIR, web_app.TEMP_DIR.parents)
