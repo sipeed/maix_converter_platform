@@ -5,9 +5,14 @@ import re
 import stat
 import tempfile
 import threading
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
+
+
+if os.name == "nt":
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from converter.backends import maixcam2_pulsar2, maixcam_tpumlir
 from converter.common.job_control import docker_container_name, is_cancel_requested
@@ -19,6 +24,8 @@ from converter.yolo.node_profiles import get_yolo_profile
 
 PROJECT_DIR = Path(__file__).resolve().parent
 ZIP_COPY_CHUNK_BYTES = 1024 * 1024
+JOB_JSON_REPLACE_RETRIES = 30
+JOB_JSON_REPLACE_DELAY_SECONDS = 0.1
 
 
 def read_env_int(name: str, default: int, min_value: int = 1) -> int:
@@ -443,7 +450,21 @@ def write_job_json(job_dir: Path, metadata: dict) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    os.replace(tmp, path)
+    try:
+        for attempt in range(JOB_JSON_REPLACE_RETRIES):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt + 1 == JOB_JSON_REPLACE_RETRIES:
+                    raise
+                # Windows readers can briefly deny delete/rename sharing while polling job status.
+                time.sleep(JOB_JSON_REPLACE_DELAY_SECONDS)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def clean_model_name(value: str) -> str:

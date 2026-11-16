@@ -60,6 +60,8 @@ MAX_CONCURRENT_JOBS = read_env_int("MAIX_MAX_CONCURRENT_JOBS", 1, min_value=1)
 MAX_LOG_RESPONSE_BYTES = read_env_int("MAIX_MAX_LOG_RESPONSE_MB", 8, min_value=1) * 1024 * 1024
 MAX_API_LOG_BYTES = read_env_int("MAIX_MAX_API_LOG_MB", 64, min_value=1) * 1024 * 1024
 LOG_STREAM_CHUNK_CHARS = 256 * 1024
+JSON_REPLACE_RETRIES = 30
+JSON_REPLACE_DELAY_SECONDS = 0.1
 
 
 @dataclass
@@ -1074,7 +1076,21 @@ def write_json(path: Path, data: dict) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    os.replace(tmp, path)
+    try:
+        for attempt in range(JSON_REPLACE_RETRIES):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt + 1 == JSON_REPLACE_RETRIES:
+                    raise
+                # Windows readers can briefly deny delete/rename sharing while polling job status.
+                time.sleep(JSON_REPLACE_DELAY_SECONDS)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def new_job_id(model_name: str, target: str, yolo_version: str) -> str:
