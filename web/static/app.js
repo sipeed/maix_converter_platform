@@ -40,6 +40,7 @@
       "jobForm.dragHint": "点击选择，或拖拽文件到这里",
       "jobForm.target": "目标设备",
       "jobForm.yoloVersion": "YOLO 版本",
+      "jobForm.task": "任务类型",
       "jobForm.imagesNum": "图片数量",
       "jobForm.fastMode": "快速模式",
       "jobForm.width": "宽度",
@@ -149,6 +150,7 @@
       "jobForm.dragHint": "Click to choose, or drag a file here",
       "jobForm.target": "Target device",
       "jobForm.yoloVersion": "YOLO version",
+      "jobForm.task": "Task type",
       "jobForm.imagesNum": "Image count",
       "jobForm.fastMode": "Fast mode",
       "jobForm.width": "Width",
@@ -312,6 +314,7 @@
       option.addEventListener("click", () => selectYoloOption(option));
       option.addEventListener("keydown", (event) => handleYoloOptionKeydown(event, option));
     });
+    syncTaskOptions($("yoloVersion").value);
     document.addEventListener("click", (event) => {
       if (!$("yoloSelect").contains(event.target)) setYoloMenuOpen(false);
       if (!$("languageSelectControl").contains(event.target)) setLanguageMenuOpen(false);
@@ -564,10 +567,22 @@
     $("yoloSelect").classList.toggle("open", open);
   }
 
+  function syncTaskOptions(yoloVersion) {
+    const select = $("task");
+    if (!select) return;
+    const onlyDetect = yoloVersion === "yolo26";
+    Array.from(select.options).forEach((option) => {
+      if (option.value === "detect") return;
+      option.disabled = onlyDetect;
+      option.hidden = onlyDetect;
+    });
+    if (onlyDetect) select.value = "detect";
+  }
+
   function setYoloVersion(value, label, meta) {
     $("yoloVersion").value = value;
     $("yoloSelectLabel").textContent = label || value;
-    $("yoloSelectMeta").textContent = meta || "Detect";
+    syncTaskOptions(value);
     document.querySelectorAll("#yoloSelect .select-option").forEach((option) => {
       const selected = option.dataset.value === value;
       option.classList.toggle("active", selected);

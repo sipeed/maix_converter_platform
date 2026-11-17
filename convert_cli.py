@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--model-name", default="", help="output model base name, default is model stem")
     parser.add_argument("--labels", default="", help="comma separated labels, default is read from model metadata")
     parser.add_argument("--yolo-version", default="yolo26", choices=["yolo11", "yolo26", "yolov8"], help="YOLO profile")
-    parser.add_argument("--task", default="detect", choices=["detect"], help="model task")
+    parser.add_argument("--task", default="detect", choices=["detect", "seg", "obb"], help="model task")
     parser.add_argument("--images-num", type=int, default=100, help="number of calibration images")
     parser.add_argument(
         "--imgsz",
@@ -166,6 +166,7 @@ def main():
         elif suffix != ".onnx":
             raise ValueError(f"unsupported model suffix: {model_path.suffix}, expected .pt or .onnx")
 
+        validate_output_nodes(model_path, profile)
         input_shape = read_onnx_input_hw(model_path, fallback=(height, width))
         metadata["requested_imgsz"] = [width, height]
         metadata["imgsz"] = [input_shape[1], input_shape[0]]
@@ -359,6 +360,33 @@ def new_job_dir(root: Path, model_name: str, profile, target: str) -> Path:
     if target == "maixcam":
         return maixcam_tpumlir.new_job_dir(root, model_name, profile=profile)
     raise ValueError(f"unsupported target: {target}")
+
+
+def validate_output_nodes(model_path: Path, profile) -> None:
+    # Fail early with a useful hint when the ONNX export uses different node names.
+    if model_path.suffix.lower() != ".onnx":
+        return
+    try:
+        import onnx
+    except ModuleNotFoundError:
+        return
+    model = onnx.load(str(model_path))
+    available = {out for node in model.graph.node for out in node.output}
+    available |= {item.name for item in model.graph.output}
+    missing = [name for name in profile.output_names if name not in available]
+    if not missing:
+        return
+    candidates = sorted(
+        name
+        for name in available
+        if any(key in name for key in ("Concat", "Sigmoid", "dfl", "one2one_cv", "output"))
+    )
+    raise ValueError(
+        "output node(s) not found in the ONNX graph: "
+        + ", ".join(missing)
+        + ". Node names can differ between Ultralytics exports; candidate tensors: "
+        + ", ".join(candidates[:20])
+    )
 
 
 def read_onnx_input_hw(model_path: Path, fallback: tuple[int, int]) -> tuple[int, int]:

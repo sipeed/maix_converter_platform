@@ -18,6 +18,10 @@ class YoloProfile:
     def output_names(self) -> list[str]:
         return [node.name for node in self.output_nodes]
 
+    @property
+    def mud_type(self) -> str:
+        return "detector" if self.task == "detect" else self.task
+
 
 YOLO26_DETECT_OUTPUTS = [
     OutputNode("/model.23/one2one_cv2.0/one2one_cv2.0.2/Conv_output_0", (0, 2, 3, 1)),
@@ -29,12 +33,38 @@ YOLO26_DETECT_OUTPUTS = [
 ]
 
 YOLO11_DETECT_OUTPUTS = [
-    OutputNode("/model.23/dfl/conv/Conv_output_0", (0, 2, 3, 1)),
+    OutputNode("/model.23/dfl/conv/Conv_output_0"),
     OutputNode("/model.23/Sigmoid_output_0"),
 ]
 
 YOLOV8_DETECT_OUTPUTS = [
-    OutputNode("/model.22/dfl/conv/Conv_output_0", (0, 2, 3, 1)),
+    OutputNode("/model.22/dfl/conv/Conv_output_0"),
+    OutputNode("/model.22/Sigmoid_output_0"),
+]
+
+YOLO11_SEG_OUTPUTS = [
+    OutputNode("/model.23/dfl/conv/Conv_output_0"),
+    OutputNode("/model.23/Sigmoid_output_0"),
+    OutputNode("/model.23/Concat_2_output_0"),
+    OutputNode("output1"),
+]
+
+YOLOV8_SEG_OUTPUTS = [
+    OutputNode("/model.22/dfl/conv/Conv_output_0"),
+    OutputNode("/model.22/Sigmoid_output_0"),
+    OutputNode("/model.22/Concat_2_output_0"),
+    OutputNode("output1"),
+]
+
+YOLO11_OBB_OUTPUTS = [
+    OutputNode("/model.23/dfl/conv/Conv_output_0"),
+    OutputNode("/model.23/Sigmoid_1_output_0"),
+    OutputNode("/model.23/Sigmoid_output_0"),
+]
+
+YOLOV8_OBB_OUTPUTS = [
+    OutputNode("/model.22/dfl/conv/Conv_output_0"),
+    OutputNode("/model.22/Sigmoid_1_output_0"),
     OutputNode("/model.22/Sigmoid_output_0"),
 ]
 
@@ -56,6 +86,30 @@ PROFILES = {
         task="detect",
         model_type="yolov8",
         output_nodes=tuple(YOLOV8_DETECT_OUTPUTS),
+    ),
+    ("yolo11", "seg"): YoloProfile(
+        yolo_version="yolo11",
+        task="seg",
+        model_type="yolo11",
+        output_nodes=tuple(YOLO11_SEG_OUTPUTS),
+    ),
+    ("yolov8", "seg"): YoloProfile(
+        yolo_version="yolov8",
+        task="seg",
+        model_type="yolov8",
+        output_nodes=tuple(YOLOV8_SEG_OUTPUTS),
+    ),
+    ("yolo11", "obb"): YoloProfile(
+        yolo_version="yolo11",
+        task="obb",
+        model_type="yolo11",
+        output_nodes=tuple(YOLO11_OBB_OUTPUTS),
+    ),
+    ("yolov8", "obb"): YoloProfile(
+        yolo_version="yolov8",
+        task="obb",
+        model_type="yolov8",
+        output_nodes=tuple(YOLOV8_OBB_OUTPUTS),
     ),
 }
 

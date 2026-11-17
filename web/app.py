@@ -218,6 +218,7 @@ def create_job(
     imgsz_height: int = Form(480),
     target: str = Form("maixcam2"),
     yolo_version: str = Form("yolo26"),
+    task: str = Form("detect"),
     fast: bool = Form(False),
 ):
     if images_num < 1 or images_num > 5000:
@@ -238,7 +239,7 @@ def create_job(
     if not clean_model_name:
         raise HTTPException(status_code=400, detail="model_name is required")
     try:
-        profile = get_yolo_profile(yolo_version, "detect")
+        profile = get_yolo_profile(yolo_version, task.strip().lower())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -296,6 +297,7 @@ def create_job(
             model_name=clean_model_name,
             target=target,
             yolo_version=profile.yolo_version,
+            task=profile.task,
             images_num=images_num,
             imgsz_width=imgsz_width,
             imgsz_height=imgsz_height,
@@ -493,6 +495,7 @@ def run_conversion(
     model_name: str,
     target: str,
     yolo_version: str,
+    task: str,
     images_num: int,
     imgsz_width: int,
     imgsz_height: int,
@@ -511,6 +514,8 @@ def run_conversion(
         target,
         "--yolo-version",
         yolo_version,
+        "--task",
+        task,
         "--imgsz",
         str(imgsz_width),
         str(imgsz_height),

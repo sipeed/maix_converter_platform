@@ -15,7 +15,7 @@ Maix Converter Platform 是一个面向 MaixCAM / MaixCAM Pro / MaixCam2 的 YOL
 ## 当前支持
 
 - 设备：MaixCam2、MaixCAM / MaixCAM Pro
-- 任务：Detect
+- 任务：Detect / Seg / OBB（Seg、OBB 仅 YOLO11、YOLOv8）
 - YOLO26
 - YOLO11
 - YOLOv8
@@ -588,13 +588,34 @@ yolo11n_vnpu.axmodel
 
 这个选项会影响输出节点选择和 `.mud` 里的 `model_type`，必须和模型实际版本对应。
 
-当前支持的是 Detect 任务，不包含 pose、seg、obb。YOLO11 和 YOLOv8 的 `.pt -> .onnx` 导出使用当前 Python 环境里的 `ultralytics` 包；如果上传 `.onnx`，平台会直接使用 ONNX 进入后续转换。
+### 任务类型
+
+- `Detect`：目标检测，YOLO26 / YOLO11 / YOLOv8
+- `Seg`：实例分割，YOLO11 / YOLOv8
+- `OBB`：旋转框检测，YOLO11 / YOLOv8
+
+任务类型会影响输出节点选择和 `.mud` 里的 `type`（`detector` / `seg` / `obb`）。当前不包含 pose。YOLO11 和 YOLOv8 的 `.pt -> .onnx` 导出使用当前 Python 环境里的 `ultralytics` 包；如果上传 `.onnx`，平台会直接使用 ONNX 进入后续转换。
 
 | 选项 | `.mud` model_type | Detect 输出节点 |
 |------|-------------------|-----------------|
 | YOLO26 | `yolo26` | 6 个 `one2one_cv2 / one2one_cv3` 输出 |
 | YOLO11 | `yolo11` | `/model.23/dfl/conv/Conv_output_0` 和 `/model.23/Sigmoid_output_0` |
 | YOLOv8 | `yolov8` | `/model.22/dfl/conv/Conv_output_0` 和 `/model.22/Sigmoid_output_0` |
+
+Seg / OBB 的输出节点（同样对应 MaixPy 文档里的方案二）：
+
+| 选项 | 输出节点 |
+|------|----------|
+| YOLO11 Seg | `/model.23/dfl/conv/Conv_output_0`、`/model.23/Sigmoid_output_0`、`/model.23/Concat_2_output_0`、`output1` |
+| YOLOv8 Seg | `/model.22/dfl/conv/Conv_output_0`、`/model.22/Sigmoid_output_0`、`/model.22/Concat_2_output_0`、`output1` |
+| YOLO11 OBB | `/model.23/dfl/conv/Conv_output_0`、`/model.23/Sigmoid_1_output_0`、`/model.23/Sigmoid_output_0` |
+| YOLOv8 OBB | `/model.22/dfl/conv/Conv_output_0`、`/model.22/Sigmoid_1_output_0`、`/model.22/Sigmoid_output_0` |
+
+> 转换开始前平台会先检查这些节点是否真的存在于你的 ONNX 里；不存在会直接报错并列出候选节点名（`Concat` / `Sigmoid` / `dfl` / `output` 相关），照着改 profile 即可。
+
+> 节点名对应 Ultralytics 8.4.x 导出的 ONNX（`output1` 是 ONNX 图输出名）。旧版 Ultralytics 导出的图里 mask 系数节点可能叫 `Concat_output_0`，如果转换后在设备上报 `Tensors get tensor idx error`，先核对 ONNX 里 32 通道的那个 Concat 节点实际叫什么。
+>
+> OBB 模型建议用和实际场景接近的图片做量化校准（例如航拍图）。用街景图校准 DOTA 类别的 OBB 模型时，类别分支在 INT8 量化后会整体塌到 0，表现为设备上只能以极低置信度出框。
 
 这里的 YOLO11 / YOLOv8 Detect 节点选择对应 MaixPy 文档里的方案二。它会让更多计算进入模型参与量化，适合 MaixCAM / MaixCAM Pro；当前平台也用这套节点生成 MaixCam2 模型。
 

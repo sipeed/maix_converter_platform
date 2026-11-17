@@ -56,6 +56,7 @@ def prepare_job(
         model_name=model_name,
         model_type=profile.model_type,
         labels=labels,
+        model_task=profile.mud_type,
     )
     write_container_script(job_dir / "convert_inside_docker.py", profile=profile)
 
