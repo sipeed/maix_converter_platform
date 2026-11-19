@@ -85,6 +85,7 @@
       "log.copied": "日志已复制",
       "log.copyFailed": "复制失败，请手动选择日志",
       "log.connectError": "日志连接异常",
+      "log.reconnecting": "日志连接中断，正在重连（任务仍在运行）",
       "jobs.eyebrow": "历史记录",
       "jobs.title": "最近任务",
       "jobs.count": "{visible} / {total} 个任务",
@@ -195,6 +196,7 @@
       "log.copied": "Log copied",
       "log.copyFailed": "Copy failed. Select the log manually.",
       "log.connectError": "Log connection error",
+      "log.reconnecting": "Log connection lost, reconnecting (job is still running)",
       "jobs.eyebrow": "History",
       "jobs.title": "Recent jobs",
       "jobs.count": "{visible} / {total} jobs",
@@ -241,6 +243,8 @@
     uploadTextParams: {},
     downloadedJobIds: new Set(),
     openRequestId: 0,
+    reconnectTimer: null,
+    streamFinished: false,
   };
   let uploadHideTimer = 0;
   let authPromptPromise = null;
@@ -985,7 +989,12 @@
   }
 
   function connectLog(jobId, requestId) {
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
     closeLogSocket();
+    state.streamFinished = false;
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${location.host}/api/jobs/${encodeURIComponent(jobId)}/stream`);
     state.socket = socket;
@@ -995,7 +1004,10 @@
       if (payload.type === "job") renderJob(payload.job);
       if (payload.type === "log") appendLog(payload.text);
       if (payload.type === "error") appendLog(`\n[error] ${payload.message}\n`);
-      if (payload.type === "done") loadJobs();
+      if (payload.type === "done") {
+        state.streamFinished = true;
+        loadJobs();
+      }
     };
     socket.onerror = () => {
       if (state.socket === socket && requestId === state.openRequestId && state.currentJobId === jobId) {
@@ -1004,6 +1016,12 @@
     };
     socket.onclose = () => {
       if (state.socket === socket) state.socket = null;
+      if (requestId !== state.openRequestId || state.currentJobId !== jobId) return;
+      if (state.streamFinished) return;
+      if (["success", "failed", "cancelled"].includes(state.currentJob && state.currentJob.status)) return;
+      // the server replays the log from the beginning, so drop the stale copy first
+      clearLog("log.reconnecting");
+      state.reconnectTimer = setTimeout(() => connectLog(jobId, requestId), 1000);
     };
   }
 

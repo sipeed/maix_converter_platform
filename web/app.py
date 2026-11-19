@@ -484,6 +484,9 @@ async def stream_job(websocket: WebSocket, job_id: str):
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         return
+    except Exception as exc:  # client disappeared mid-send: ConnectionClosed / RuntimeError / OSError
+        print(f"[ws] stream {job_id} closed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return
 
 
 def run_conversion(
