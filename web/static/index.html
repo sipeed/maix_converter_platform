@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#eef3f8" />
     <title>Maix Converter Platform</title>
     <link rel="stylesheet" href="/static/style.css" />
-    <script defer src="/static/app.js"></script>
+    <script defer src="/static/app.js?v=3"></script>
   </head>
   <body>
     <header class="topbar">
@@ -98,21 +98,29 @@
               <button class="select-button" id="yoloSelectButton" type="button" aria-haspopup="listbox" aria-expanded="false">
                 <span class="select-value">
                   <strong id="yoloSelectLabel">YOLO26</strong>
-                  <em id="yoloSelectMeta">Detect</em>
                 </span>
               </button>
               <span class="select-menu" id="yoloSelectMenu" role="listbox" hidden>
-                <button class="select-option active" type="button" role="option" data-value="yolo26" data-label="YOLO26" data-meta="Detect" aria-selected="true">
-                  <span><strong>YOLO26</strong><em>Detect</em></span>
+                <button class="select-option active" type="button" role="option" data-value="yolo26" data-label="YOLO26" aria-selected="true">
+                  <span><strong>YOLO26</strong></span>
                 </button>
-                <button class="select-option" type="button" role="option" data-value="yolo11" data-label="YOLO11" data-meta="Detect" aria-selected="false">
-                  <span><strong>YOLO11</strong><em>Detect</em></span>
+                <button class="select-option" type="button" role="option" data-value="yolo11" data-label="YOLO11" aria-selected="false">
+                  <span><strong>YOLO11</strong></span>
                 </button>
-                <button class="select-option" type="button" role="option" data-value="yolov8" data-label="YOLOv8" data-meta="Detect" aria-selected="false">
-                  <span><strong>YOLOv8</strong><em>Detect</em></span>
+                <button class="select-option" type="button" role="option" data-value="yolov8" data-label="YOLOv8" aria-selected="false">
+                  <span><strong>YOLOv8</strong></span>
                 </button>
               </span>
             </span>
+          </div>
+
+          <div class="field">
+            <span data-i18n="jobForm.task">任务类型</span>
+            <select id="task" name="task">
+              <option value="detect" selected>Detect</option>
+              <option value="seg">Seg</option>
+              <option value="obb">OBB</option>
+            </select>
           </div>
 
           <div class="grid-two">

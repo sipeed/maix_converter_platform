@@ -7,6 +7,7 @@ def write_maixcam2_yolo_mud(
     model_name: str,
     model_type: str,
     labels: list[str],
+    model_task: str = "detector",
 ) -> None:
     labels_text = ", ".join(labels)
     text = f"""[basic]
@@ -16,7 +17,7 @@ model_vnpu = {model_name}_vnpu.axmodel
 
 [extra]
 model_type = {model_type}
-type=detector
+type={model_task}
 input_type = rgb
 labels = {labels_text}
 
@@ -38,6 +39,7 @@ def write_maixcam_yolo_mud(
     model_name: str,
     model_type: str,
     labels: list[str],
+    model_task: str = "detector",
 ) -> None:
     labels_text = ", ".join(labels)
     text = f"""[basic]
@@ -46,7 +48,7 @@ model = {model_name}.cvimodel
 
 [extra]
 model_type = {model_type}
-type=detector
+type={model_task}
 input_type = rgb
 labels = {labels_text}
 
